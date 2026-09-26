@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-logo: 'Lora', 'IBM Plex Serif', Georgia, serif;
+    --font-heading: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-editorial: 'Lora', 'Playfair Display', Georgia, serif;
+  }
+
+  body {
+    background-color: #F6F1EA;
+    color: #1c1917;
+    font-family: var(--font-body);
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+}
+
+.font-logo {
+  font-family: var(--font-logo);
+}
+
+.font-heading {
+  font-family: var(--font-heading);
+}
+
+.font-editorial {
+  font-family: var(--font-editorial);
+}
+
+/* Paper grain texture */
+.paper-texture {
+  background-color: #F6F1EA;
+  background-image: 
+    radial-gradient(#d3c6b2 0.75px, transparent 0.75px),
+    radial-gradient(#ebe3d5 0.75px, #F6F1EA 0.75px);
+  background-size: 30px 30px;
+  background-position: 0 0, 15px 15px;
+}
+
+/* Frosted glass glow card */
+.wandor-card {
+  background: rgba(250, 246, 240, 0.88);
+  backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 
+    0 4px 20px -2px rgba(139, 94, 60, 0.08),
+    0 16px 48px -8px rgba(90, 60, 35, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Wandor - AI Travel Itinerary Planner",
+  "description": "Tell our AI where you're going and what you love. We'll create a personalized itinerary for you with curated hidden gems and scenic spots.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

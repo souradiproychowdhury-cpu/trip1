@@ -1,0 +1,102 @@
+import Anthropic from '@anthropic-ai/sdk';
+import { AIProvider } from './types';
+import { TripItinerary } from '../../src/types';
+import { SYSTEM_INSTRUCTION } from './schema';
+
+export class AnthropicProvider implements AIProvider {
+  name = 'anthropic';
+  private client: Anthropic | null = null;
+  private model = process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest';
+
+  constructor() {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (apiKey) {
+      this.client = new Anthropic({ apiKey });
+    }
+  }
+
+  isConfigured(): boolean {
+    return this.client !== null;
+  }
+
+  async generateItinerary(prompt: string, attachmentText?: string, retryError?: string, origin?: string): Promise<TripItinerary> {
+    if (!this.client) throw new Error('Anthropic not configured');
+
+    let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
+    if (origin) {
+      userMessage += `\nThe traveler is departing / traveling from: "${origin}". Please provide full transitRoutes (flight routes & timings, train routes & timings, bus/highway routes & timings from ${origin} to the destination).`;
+    }
+    if (attachmentText) {
+      userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;
+    }
+    if (retryError) {
+      userMessage += `\n\nWARNING: Your last response failed validation with the following error:\n${retryError}\n\nPlease fix these issues and ensure your response strictly matches the required JSON schema.`;
+    }
+
+    userMessage += `\n\nOutput only a JSON object.`;
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 4096,
+      system: SYSTEM_INSTRUCTION,
+      messages: [
+        { role: 'user', content: userMessage }
+      ],
+      temperature: 0.4,
+    });
+
+    const block = response.content[0];
+    const responseText = block.type === 'text' ? block.text : '';
+    // Strip markdown if anthropic added it
+    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  async refineItinerary(current: TripItinerary, refinePrompt: string, retryError?: string): Promise<TripItinerary> {
+    if (!this.client) throw new Error('Anthropic not configured');
+
+    let prompt = `Here is an existing travel itinerary JSON:\n${JSON.stringify(current)}\n\nThe traveler asks: "${refinePrompt}".\nUpdate and return the modified itinerary adhering strictly to the JSON schema.`;
+    
+    if (retryError) {
+      prompt += `\n\nWARNING: Your last response failed validation with the following error:\n${retryError}\n\nPlease fix these issues and ensure your response strictly matches the required JSON schema.`;
+    }
+
+    prompt += `\n\nOutput only a JSON object.`;
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 4096,
+      system: SYSTEM_INSTRUCTION,
+      messages: [
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.3,
+    });
+
+    const block = response.content[0];
+    const responseText = block.type === 'text' ? block.text : '';
+    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+
+  async translateItinerary(itinerary: TripItinerary, language: string = 'English'): Promise<TripItinerary> {
+    if (!this.client) throw new Error('Anthropic not configured');
+
+    const prompt = `Translate the entire itinerary into ${language}. Preserve the structure and JSON schema exactly. Keep place names, destinations, day numbers, and routes intact where possible. Translate all descriptions, tips, titles, themes, summaries, and labels into the requested language. Output only a JSON object.`;
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 4096,
+      system: SYSTEM_INSTRUCTION,
+      messages: [
+        { role: 'user', content: `${prompt}\n\nITINERARY_JSON:\n${JSON.stringify(itinerary)}` }
+      ],
+      temperature: 0.2,
+    });
+
+    const block = response.content[0];
+    const responseText = block.type === 'text' ? block.text : '';
+    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  }
+}
