@@ -1,7 +1,6 @@
 import 'dotenv/config'; // MUST be first — loads .env before any other module reads process.env
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
@@ -13,16 +12,39 @@ import rateLimit from "express-rate-limit";
 import { generateItinerary, refineItinerary, getConfiguredProviderNames, getActiveProviders, translateItinerary } from "./server/ai/router";
 import { extractTextFromAttachment } from "./server/ai/extractText";
 
-
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const JWT_SECRET = process.env.JWT_SECRET || "WandOr-Secret-key";
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "mock-client-id";
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
-const prisma = new PrismaClient();
+let prisma: any = null;
+try {
+  prisma = new PrismaClient();
+} catch (e: any) {
+  console.warn("[Prisma] Running in stateless serverless mode without local DB:", e?.message);
+}
 
 const upload = multer({ limits: { fileSize: 15 * 1024 * 1024 } }); // 15MB limit
+
+// CORS and Preflight handling for Vercel
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// URL prefix normalizer for Vercel serverless rewrites
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/api') && req.url !== '/' && !req.url.startsWith('/assets')) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
 
 app.use(express.json({ limit: "15mb" }));
 app.use(cookieParser());
@@ -901,6 +923,7 @@ app.post("/api/refine-trip", aiLimiter, async (req, res) => {
 // Vite middleware setup
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -924,4 +947,10 @@ async function startServer() {
   });
 }
 
-startServer();
+// In local development or standalone container, run HTTP server
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
+export { app };
