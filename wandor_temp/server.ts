@@ -217,7 +217,7 @@ app.get("/api/trips", async (req, res) => {
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' }
     });
-    
+
     // Parse itineraries
     const formattedTrips = trips.map(t => ({
       ...t,
@@ -239,7 +239,7 @@ app.get("/api/trips/:id", async (req, res) => {
       where: { id: req.params.id, userId: user.id }
     });
     if (!trip) return res.status(404).json({ error: "Trip not found" });
-    
+
     const itinerary = typeof trip.itinerary === 'string' ? JSON.parse(trip.itinerary) : trip.itinerary;
     res.json({ success: true, trip: { ...trip, itinerary } });
   } catch (error) {
@@ -263,9 +263,9 @@ app.post("/api/extract-attachment", aiLimiter, upload.single('file'), async (req
 });
 
 // Health check
-app.get("/api/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
+app.get(["/api/health", "/health"], (req, res) => {
+  res.json({
+    status: "ok",
     service: "wandor-backend",
     aiProviders: getConfiguredProviderNames()
   });
@@ -386,7 +386,7 @@ const LANDMARK_ALIASES: Record<string, string> = {
 };
 
 // Enhanced Wikipedia & Wikimedia Commons Photo Endpoint (Authentic Sightseeing Photos)
-app.get("/api/location-image", async (req, res) => {
+app.get(["/api/location-image", "/location-image"], async (req, res) => {
   const rawPlace = (req.query.place as string) || '';
   const rawDest = (req.query.destination as string) || '';
   const rawQ = (req.query.q as string) || '';
@@ -467,7 +467,7 @@ app.get("/api/location-image", async (req, res) => {
               return res.json({ success: true, imageUrl: origSrc, title, source: 'wikipedia' });
             }
           }
-        } catch (_) {}
+        } catch (_) { }
       }
 
       // 2. Search Wikimedia Commons files (namespace 6) for authentic landmark photographs
@@ -488,7 +488,7 @@ app.get("/api/location-image", async (req, res) => {
             }
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // 3. If specific search failed, fetch main Wikipedia photo of the destination city
@@ -505,7 +505,7 @@ app.get("/api/location-image", async (req, res) => {
             return res.json({ success: true, imageUrl: hiRes, title: destData.title, source: 'wikipedia-dest' });
           }
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // Default safe fallback if network offline
@@ -520,8 +520,8 @@ app.get("/api/location-image", async (req, res) => {
 });
 
 // AI Voice Narrative Endpoint for Multilingual Audio Guide with Cache
-app.post("/api/voice-narrative", async (req, res) => {
-  const { placeName, destination, language = "English", context } = req.body;
+app.post(["/api/voice-narrative", "/voice-narrative"], async (req, res) => {
+  const { placeName, destination, language = "English", context, geminiKey } = req.body;
   if (!placeName) return res.status(400).json({ error: "placeName is required" });
 
   const cacheKey = `${placeName.toLowerCase()}::${(destination || '').toLowerCase()}::${language.toLowerCase()}`;
@@ -530,7 +530,7 @@ app.post("/api/voice-narrative", async (req, res) => {
   }
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = (req.headers['x-gemini-key'] as string) || geminiKey || process.env.GEMINI_API_KEY;
     if (apiKey) {
       const { GoogleGenAI } = await import('@google/genai');
       const aiClient = new GoogleGenAI({ apiKey });
@@ -541,7 +541,7 @@ Language: Write the narration in ${language} (using native script).
 Return ONLY the spoken text, no quotes or markdown.`;
 
       const response = await aiClient.models.generateContent({
-        model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+        model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
         contents: prompt,
         config: {
           temperature: 0.3,
@@ -567,7 +567,7 @@ Return ONLY the spoken text, no quotes or markdown.`;
 });
 
 // Place Info Endpoint (Brief Idea, Overview, Photo, Coordinates, Wiki & Maps URLs)
-app.get("/api/place-info", async (req, res) => {
+app.get(["/api/place-info", "/place-info"], async (req, res) => {
   const rawPlace = (req.query.place as string) || (req.query.q as string) || '';
   const rawDest = (req.query.destination as string) || '';
 
@@ -643,7 +643,7 @@ app.get("/api/place-info", async (req, res) => {
 });
 
 // Live Currency Exchange Rates Endpoint
-app.get("/api/exchange-rates", async (req, res) => {
+app.get(["/api/exchange-rates", "/exchange-rates"], async (req, res) => {
   const now = Date.now();
   // Return cached rates if fresh within 12 hours
   if (exchangeRatesCache && (now - exchangeRatesCache.timestamp < 12 * 60 * 60 * 1000)) {
@@ -671,8 +671,9 @@ app.get("/api/exchange-rates", async (req, res) => {
 });
 
 // Primary Endpoint: Plan Trip
-app.post("/api/plan-trip", aiLimiter, async (req, res) => {
-  const { prompt, attachmentSummary } = req.body;
+app.post(["/api/plan-trip", "/plan-trip"], aiLimiter, async (req, res) => {
+  const { prompt, attachmentSummary, geminiKey } = req.body;
+  const clientKey = (req.headers['x-gemini-key'] as string) || geminiKey;
   const user = (req as any).user;
 
   if (!prompt || typeof prompt !== "string") {
@@ -680,19 +681,23 @@ app.post("/api/plan-trip", aiLimiter, async (req, res) => {
   }
 
   try {
-    const itinerary = await generateItinerary(prompt, attachmentSummary);
+    const itinerary = await generateItinerary(prompt, attachmentSummary, clientKey);
     itinerary.id = `trip-${Date.now()}`;
 
     // Save to database if user is logged in
-    if (user) {
-      await prisma.trip.create({
-        data: {
-          id: itinerary.id,
-          userId: user.id,
-          prompt,
-          itinerary: itinerary as any
-        }
-      });
+    if (user && prisma) {
+      try {
+        await prisma.trip.create({
+          data: {
+            id: itinerary.id,
+            userId: user.id,
+            prompt,
+            itinerary: itinerary as any
+          }
+        });
+      } catch (dbErr) {
+        console.warn("DB save skipped:", dbErr);
+      }
     }
 
     return res.json({ success: true, itinerary });
@@ -703,8 +708,9 @@ app.post("/api/plan-trip", aiLimiter, async (req, res) => {
 });
 
 // Translate Itinerary Endpoint with Cache
-app.post("/api/translate-itinerary", aiLimiter, async (req, res) => {
-  const { itinerary, language = 'English' } = req.body;
+app.post(["/api/translate-itinerary", "/translate-itinerary"], aiLimiter, async (req, res) => {
+  const { itinerary, language = 'English', geminiKey } = req.body;
+  const clientKey = (req.headers['x-gemini-key'] as string) || geminiKey;
 
   if (!itinerary || !itinerary.days) {
     return res.status(400).json({ error: 'An itinerary object is required for translation.' });
@@ -720,7 +726,7 @@ app.post("/api/translate-itinerary", aiLimiter, async (req, res) => {
   }
 
   try {
-    const translatedItinerary = await translateItinerary(itinerary, language);
+    const translatedItinerary = await translateItinerary(itinerary, language, clientKey);
     translationCache.set(cacheKey, translatedItinerary);
     return res.json({ success: true, itinerary: translatedItinerary, language });
   } catch (err: any) {
@@ -730,8 +736,9 @@ app.post("/api/translate-itinerary", aiLimiter, async (req, res) => {
 });
 
 // Full Numbered Trip Map Generator with Gemini Route Enrichment & Geo coordinates
-app.post("/api/generate-trip-map", async (req, res) => {
-  const { itinerary } = req.body;
+app.post(["/api/generate-trip-map", "/generate-trip-map"], async (req, res) => {
+  const { itinerary, geminiKey } = req.body;
+  const clientKey = (req.headers['x-gemini-key'] as string) || geminiKey;
   if (!itinerary || !itinerary.days) {
     return res.status(400).json({ error: "Itinerary is required" });
   }
@@ -815,7 +822,7 @@ app.post("/api/generate-trip-map", async (req, res) => {
     }
 
     // Use Gemini for rapid geo-coordinates and transit link estimations with 3.5s timeout
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = clientKey || process.env.GEMINI_API_KEY;
     let enrichedStops = rawStops;
     let routeSummary = `A curated ${itinerary.duration || 'journey'} across ${rawStops.length} numbered stops in ${itinerary.destination}.`;
     let routeTips: string[] = [];
@@ -837,7 +844,7 @@ Return JSON:
 }`;
 
         const geoPromise = aiClient.models.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+          model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
           contents: geoPrompt,
           config: {
             responseMimeType: 'application/json',
@@ -890,8 +897,9 @@ Return JSON:
 });
 
 // Refine Itinerary Endpoint
-app.post("/api/refine-trip", aiLimiter, async (req, res) => {
-  const { currentItinerary, refinePrompt } = req.body;
+app.post(["/api/refine-trip", "/refine-trip"], aiLimiter, async (req, res) => {
+  const { currentItinerary, refinePrompt, geminiKey } = req.body;
+  const clientKey = (req.headers['x-gemini-key'] as string) || geminiKey;
   const user = (req as any).user;
 
   if (!currentItinerary || !refinePrompt) {
@@ -899,17 +907,20 @@ app.post("/api/refine-trip", aiLimiter, async (req, res) => {
   }
 
   try {
-    const updatedItinerary = await refineItinerary(currentItinerary, refinePrompt);
+    const updatedItinerary = await refineItinerary(currentItinerary, refinePrompt, clientKey);
 
     // Update in DB if it was already saved
-    if (user && currentItinerary.id) {
-      // Check if it exists
-      const existing = await prisma.trip.findFirst({ where: { id: currentItinerary.id, userId: user.id } });
-      if (existing) {
-        await prisma.trip.update({
-          where: { id: currentItinerary.id },
-          data: { itinerary: updatedItinerary as any }
-        });
+    if (user && currentItinerary.id && prisma) {
+      try {
+        const existing = await prisma.trip.findFirst({ where: { id: currentItinerary.id, userId: user.id } });
+        if (existing) {
+          await prisma.trip.update({
+            where: { id: currentItinerary.id },
+            data: { itinerary: updatedItinerary as any }
+          });
+        }
+      } catch (dbErr) {
+        console.warn("DB update skipped:", dbErr);
       }
     }
 

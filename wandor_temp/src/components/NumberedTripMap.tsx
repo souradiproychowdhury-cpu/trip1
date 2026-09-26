@@ -6,18 +6,23 @@ import {
   Sparkles,
   Compass,
   Navigation,
-  Clock,
-  Coffee,
-  CheckCircle,
   ExternalLink,
   Layers,
   ChevronRight,
   ShieldCheck,
-  Share2
+  Key,
+  Globe,
+  Satellite,
+  Map as MapIcon,
+  Check,
+  Route,
+  AlertCircle
 } from 'lucide-react';
 import { TripItinerary } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+
+declare const google: any;
 
 interface NumberedStop {
   number: number;
@@ -52,14 +57,14 @@ interface NumberedTripMapProps {
 }
 
 // Day color themes for numbered pins
-const DAY_COLORS: Record<number, { bg: string; border: string; text: string; ring: string }> = {
-  1: { bg: '#d97706', border: '#b45309', text: '#ffffff', ring: 'ring-amber-500/30' },
-  2: { bg: '#059669', border: '#047857', text: '#ffffff', ring: 'ring-emerald-500/30' },
-  3: { bg: '#0284c7', border: '#0369a1', text: '#ffffff', ring: 'ring-sky-500/30' },
-  4: { bg: '#7c3aed', border: '#6d28d9', text: '#ffffff', ring: 'ring-purple-500/30' },
-  5: { bg: '#e11d48', border: '#be123c', text: '#ffffff', ring: 'ring-rose-500/30' },
-  6: { bg: '#ea580c', border: '#c2410c', text: '#ffffff', ring: 'ring-orange-500/30' },
-  7: { bg: '#0891b2', border: '#0e7490', text: '#ffffff', ring: 'ring-cyan-500/30' },
+const DAY_COLORS: Record<number, { bg: string; border: string; text: string; hex: string }> = {
+  1: { bg: '#d97706', border: '#b45309', text: '#ffffff', hex: '#d97706' },
+  2: { bg: '#059669', border: '#047857', text: '#ffffff', hex: '#059669' },
+  3: { bg: '#0284c7', border: '#0369a1', text: '#ffffff', hex: '#0284c7' },
+  4: { bg: '#7c3aed', border: '#6d28d9', text: '#ffffff', hex: '#7c3aed' },
+  5: { bg: '#e11d48', border: '#be123c', text: '#ffffff', hex: '#e11d48' },
+  6: { bg: '#ea580c', border: '#c2410c', text: '#ffffff', hex: '#ea580c' },
+  7: { bg: '#0891b2', border: '#0e7490', text: '#ffffff', hex: '#0891b2' },
 };
 
 const KNOWN_DESTINATIONS: Record<string, [number, number]> = {
@@ -93,6 +98,26 @@ function getDestinationCenter(destName: string): [number, number] {
   return [35.6762, 139.6503]; // Default fallback
 }
 
+// Generate an authentic Google Maps SVG Pin with prominent numbering
+function createNumberedGooglePinSvg(number: number, bgColor: string, isSelected: boolean): string {
+  const scale = isSelected ? 1.25 : 1.0;
+  const width = Math.round(36 * scale);
+  const height = Math.round(50 * scale);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 50" width="${width}" height="${height}">
+    <defs>
+      <filter id="pdrop" x="-30%" y="-20%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#000000" flood-opacity="0.45"/>
+      </filter>
+    </defs>
+    <path d="M 18 1 C 8.6 1 1 8.6 1 18 C 1 30.5 18 49 18 49 C 18 49 35 30.5 35 18 C 35 8.6 27.4 1 18 1 Z" 
+          fill="${bgColor}" stroke="#ffffff" stroke-width="2.5" filter="url(#pdrop)"/>
+    <circle cx="18" cy="18" r="11" fill="#ffffff" />
+    <text x="18" y="22.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
+          font-size="12" font-weight="900" fill="${bgColor}" text-anchor="middle">${number}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg.trim())}`;
+}
+
 export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onSelectPlace }) => {
   const [mapData, setMapData] = useState<MapData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -101,29 +126,52 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadSuccess, setDownloadSuccess] = useState<boolean>(false);
 
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const leafletMapRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<L.Marker[]>([]);
-  const polylineRef = useRef<L.Polyline | null>(null);
+  // Map Mode: 'google' (Google Maps JS API), 'google-embed' (Google Maps Embed), 'leaflet' (OpenStreetMap)
+  const [mapMode, setMapMode] = useState<'google' | 'google-embed' | 'leaflet'>('google');
+  const [googleMapTypeId, setGoogleMapTypeId] = useState<'roadmap' | 'satellite' | 'hybrid' | 'terrain'>('roadmap');
 
-  // Fetch or generate the full numbered map data
+  // Google Maps API Key state
+  const envGoogleKey = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '';
+  const [googleMapsKey, setGoogleMapsKey] = useState<string>(() => {
+    return localStorage.getItem('wandor_google_maps_key') || envGoogleKey || '';
+  });
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(false);
+  const [tempKeyInput, setTempKeyInput] = useState<string>('');
+  const [isGoogleMapsReady, setIsGoogleMapsReady] = useState<boolean>(false);
+  const [googleMapsError, setGoogleMapsError] = useState<string | null>(null);
+
+  // DOM Refs
+  const googleMapContainerRef = useRef<HTMLDivElement>(null);
+  const googleMapInstanceRef = useRef<any>(null);
+  const googleMarkersRef = useRef<any[]>([]);
+  const googlePolylineRef = useRef<any>(null);
+  const googleInfoWindowRef = useRef<any>(null);
+
+  const leafletContainerRef = useRef<HTMLDivElement>(null);
+  const leafletMapRef = useRef<L.Map | null>(null);
+  const leafletMarkersRef = useRef<L.Marker[]>([]);
+  const leafletPolylineRef = useRef<L.Polyline | null>(null);
+
+  // 1. Fetch or generate the full numbered map data
   useEffect(() => {
     let isMounted = true;
     const loadMapData = async () => {
       setIsLoading(true);
       try {
+        const clientGeminiKey = localStorage.getItem('wandor_gemini_key') || '';
         const res = await fetch('/api/generate-trip-map', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ itinerary })
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(clientGeminiKey ? { 'x-gemini-key': clientGeminiKey } : {})
+          },
+          body: JSON.stringify({ itinerary, geminiKey: clientGeminiKey })
         });
         const data = await res.json();
         if (data.success && isMounted) {
-          // Ensure every stop has coordinates
           const destCenter = getDestinationCenter(itinerary.destination);
           const stopsWithCoords = data.mapData.stops.map((s: NumberedStop, idx: number) => {
             if (typeof s.lat === 'number' && typeof s.lng === 'number') return s;
-            // Generate distinct subtle grid offset around city center
             const angle = (idx / Math.max(1, data.mapData.stops.length)) * Math.PI * 2;
             const radius = 0.02 + (idx % 3) * 0.012;
             return {
@@ -156,30 +204,192 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
     };
   }, [itinerary]);
 
-  // Initialize and update Leaflet Map
+  // 2. Load Google Maps JavaScript API when key is available
   useEffect(() => {
-    if (!mapContainerRef.current || !mapData || mapData.stops.length === 0) return;
+    if (!googleMapsKey) {
+      setIsGoogleMapsReady(false);
+      return;
+    }
 
-    // Filter stops based on selected day
+    if (typeof window !== 'undefined' && (window as any).google?.maps) {
+      setIsGoogleMapsReady(true);
+      setGoogleMapsError(null);
+      return;
+    }
+
+    const scriptId = 'wandor-google-maps-script';
+    const existing = document.getElementById(scriptId);
+    if (existing) {
+      existing.remove();
+    }
+
+    const script = document.createElement('script');
+    script.id = scriptId;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(googleMapsKey)}&libraries=places,geometry`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      setIsGoogleMapsReady(true);
+      setGoogleMapsError(null);
+    };
+    script.onerror = () => {
+      setIsGoogleMapsReady(false);
+      setGoogleMapsError('Failed to load Google Maps script with provided API key. Falling back to embedded view.');
+      setMapMode('google-embed');
+    };
+
+    document.head.appendChild(script);
+  }, [googleMapsKey]);
+
+  // 3. Render and update Real Google Maps (JS API)
+  useEffect(() => {
+    if (mapMode !== 'google' || !isGoogleMapsReady || !googleMapContainerRef.current || !mapData || mapData.stops.length === 0) {
+      return;
+    }
+
     const stopsToRender = selectedDayFilter === 'all'
       ? mapData.stops
       : mapData.stops.filter(s => s.dayNumber === selectedDayFilter);
 
     const validStops = stopsToRender.filter(s => typeof s.lat === 'number' && typeof s.lng === 'number');
+    if (validStops.length === 0) return;
 
-    // Default center if no coordinates (approximate fallback)
+    const centerLat = activeStop?.lat || validStops[0]?.lat || 35.6762;
+    const centerLng = activeStop?.lng || validStops[0]?.lng || 139.6503;
+
+    try {
+      if (!googleMapInstanceRef.current) {
+        googleMapInstanceRef.current = new (window as any).google.maps.Map(googleMapContainerRef.current, {
+          center: { lat: centerLat, lng: centerLng },
+          zoom: 13,
+          mapTypeId: googleMapTypeId,
+          mapTypeControl: true,
+          streetViewControl: true,
+          fullscreenControl: true,
+          zoomControl: true,
+          gestureHandling: 'cooperative',
+          styles: [
+            { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'on' }] }
+          ]
+        });
+        googleInfoWindowRef.current = new (window as any).google.maps.InfoWindow();
+      } else {
+        googleMapInstanceRef.current.setMapTypeId(googleMapTypeId);
+      }
+
+      const map = googleMapInstanceRef.current;
+
+      // Clear old markers & polyline
+      googleMarkersRef.current.forEach(m => m.setMap(null));
+      googleMarkersRef.current = [];
+      if (googlePolylineRef.current) {
+        googlePolylineRef.current.setMap(null);
+        googlePolylineRef.current = null;
+      }
+
+      const bounds = new (window as any).google.maps.LatLngBounds();
+      const pathCoordinates: any[] = [];
+
+      validStops.forEach((stop) => {
+        const isSelected = activeStop?.number === stop.number;
+        const dayColor = DAY_COLORS[stop.dayNumber] || DAY_COLORS[1];
+        const latLng = new (window as any).google.maps.LatLng(stop.lat, stop.lng);
+        bounds.extend(latLng);
+        pathCoordinates.push(latLng);
+
+        const pinIcon = {
+          url: createNumberedGooglePinSvg(stop.number, dayColor.bg, isSelected),
+          scaledSize: new (window as any).google.maps.Size(isSelected ? 45 : 36, isSelected ? 62 : 50),
+          anchor: new (window as any).google.maps.Point(isSelected ? 22 : 18, isSelected ? 62 : 50),
+        };
+
+        const marker = new (window as any).google.maps.Marker({
+          position: latLng,
+          map,
+          title: `#${stop.number} ${stop.placeName || stop.title}`,
+          icon: pinIcon,
+          zIndex: isSelected ? 999 : stop.number,
+          animation: isSelected ? (window as any).google.maps.Animation.BOUNCE : undefined,
+        });
+
+        if (isSelected && marker.getAnimation() !== null) {
+          setTimeout(() => marker.setAnimation(null), 1200);
+        }
+
+        const infoContent = `
+          <div style="font-family: inherit; padding: 6px; max-width: 250px;">
+            <div style="font-size: 11px; font-weight: 800; color: ${dayColor.bg}; text-transform: uppercase;">
+              Stop #${stop.number} &bull; Day ${stop.dayNumber} ${stop.timeSlot}
+            </div>
+            <div style="font-size: 14px; font-weight: 700; margin-top: 3px; color: #1c1917;">
+              ${stop.placeName || stop.title}
+            </div>
+            <div style="font-size: 12px; color: #78716c; margin-top: 2px;">
+              📍 ${stop.location}
+            </div>
+            ${stop.transitToNext ? `<div style="font-size: 11px; color: #d97706; margin-top: 4px; font-weight: 600;">🚶 Next stop: ${stop.transitToNext}</div>` : ''}
+            <div style="margin-top: 8px;">
+              <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((stop.placeName || stop.title) + ' ' + stop.location)}" 
+                 target="_blank" 
+                 style="font-size: 11px; font-weight: 700; color: #1d4ed8; text-decoration: underline;">
+                Open in Real Google Maps ↗
+              </a>
+            </div>
+          </div>
+        `;
+
+        marker.addListener('click', () => {
+          setActiveStop(stop);
+          googleInfoWindowRef.current.setContent(infoContent);
+          googleInfoWindowRef.current.open(map, marker);
+        });
+
+        googleMarkersRef.current.push(marker);
+      });
+
+      // Draw route connecting numbered stops
+      if (pathCoordinates.length > 1) {
+        googlePolylineRef.current = new (window as any).google.maps.Polyline({
+          path: pathCoordinates,
+          geodesic: true,
+          strokeColor: '#d97706',
+          strokeOpacity: 0.9,
+          strokeWeight: 4,
+          map,
+        });
+      }
+
+      if (validStops.length > 0) {
+        map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+        if (map.getZoom() > 16) {
+          map.setZoom(16);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Google Maps rendering notice:', err?.message);
+    }
+  }, [mapMode, isGoogleMapsReady, mapData, selectedDayFilter, activeStop, googleMapTypeId]);
+
+  // 4. Render and update Leaflet Map (Fallback or user choice)
+  useEffect(() => {
+    if (mapMode !== 'leaflet' || !leafletContainerRef.current || !mapData || mapData.stops.length === 0) return;
+
+    const stopsToRender = selectedDayFilter === 'all'
+      ? mapData.stops
+      : mapData.stops.filter(s => s.dayNumber === selectedDayFilter);
+
+    const validStops = stopsToRender.filter(s => typeof s.lat === 'number' && typeof s.lng === 'number');
     const centerLat = validStops[0]?.lat || 35.6762;
     const centerLng = validStops[0]?.lng || 139.6503;
 
     if (!leafletMapRef.current) {
-      const map = L.map(mapContainerRef.current, {
+      const map = L.map(leafletContainerRef.current, {
         zoomControl: true,
         scrollWheelZoom: false,
       }).setView([centerLat, centerLng], 12);
 
-      // Add clean, aesthetic tile layer (Voyager / OpenStreetMap)
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://carto.com/">CARTO</a> | &copy; OpenStreetMap',
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
         maxZoom: 19,
       }).addTo(map);
 
@@ -188,19 +398,17 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
 
     const map = leafletMapRef.current;
 
-    // Clear previous markers & polylines
-    markersRef.current.forEach(m => m.remove());
-    markersRef.current = [];
-    if (polylineRef.current) {
-      polylineRef.current.remove();
-      polylineRef.current = null;
+    leafletMarkersRef.current.forEach(m => m.remove());
+    leafletMarkersRef.current = [];
+    if (leafletPolylineRef.current) {
+      leafletPolylineRef.current.remove();
+      leafletPolylineRef.current = null;
     }
 
     if (validStops.length === 0) return;
 
     const latLngs: L.LatLngExpression[] = [];
 
-    // Create custom numbered pin icons
     validStops.forEach((stop) => {
       const dayColor = DAY_COLORS[stop.dayNumber] || DAY_COLORS[1];
       const isSelected = activeStop?.number === stop.number;
@@ -238,7 +446,6 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
           setActiveStop(stop);
         });
 
-      // Popup with place info
       marker.bindPopup(`
         <div style="font-family: inherit; padding: 4px;">
           <div style="font-size: 11px; font-weight: 700; color: ${dayColor.bg}; text-transform: uppercase;">
@@ -253,11 +460,10 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         </div>
       `);
 
-      markersRef.current.push(marker);
+      leafletMarkersRef.current.push(marker);
       latLngs.push([stop.lat!, stop.lng!]);
     });
 
-    // Draw route connecting numbered stops
     if (latLngs.length > 1) {
       const polyline = L.polyline(latLngs, {
         color: '#d97706',
@@ -266,21 +472,53 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         dashArray: '8, 8',
         lineCap: 'round',
       }).addTo(map);
-      polylineRef.current = polyline;
+      leafletPolylineRef.current = polyline;
     }
 
-    // Fit map bounds to show all markers
     if (latLngs.length > 0) {
       const bounds = L.latLngBounds(latLngs);
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
-  }, [mapData, selectedDayFilter, activeStop]);
+  }, [mapMode, mapData, selectedDayFilter, activeStop]);
 
-  // Pan to active stop when selected
+  // Pan to active stop
   const handleSelectStop = (stop: NumberedStop) => {
     setActiveStop(stop);
-    if (leafletMapRef.current && typeof stop.lat === 'number' && typeof stop.lng === 'number') {
+    if (mapMode === 'google' && googleMapInstanceRef.current && typeof stop.lat === 'number' && typeof stop.lng === 'number') {
+      googleMapInstanceRef.current.panTo({ lat: stop.lat, lng: stop.lng });
+      googleMapInstanceRef.current.setZoom(15);
+    } else if (mapMode === 'leaflet' && leafletMapRef.current && typeof stop.lat === 'number' && typeof stop.lng === 'number') {
       leafletMapRef.current.setView([stop.lat, stop.lng], 14, { animate: true });
+    }
+  };
+
+  // Launch the Complete Numbered Route in Real Google Maps App / Website with all Waypoints
+  const handleOpenFullRouteInGoogleMapsApp = () => {
+    if (!mapData || mapData.stops.length === 0) return;
+    const stops = mapData.stops;
+
+    const origin = encodeURIComponent(`${stops[0].placeName || stops[0].title}, ${stops[0].location || mapData.destination}`);
+    const destination = encodeURIComponent(`${stops[stops.length - 1].placeName || stops[stops.length - 1].title}, ${stops[stops.length - 1].location || mapData.destination}`);
+
+    // Intermediate stops as waypoints (up to 9 in free url)
+    const waypoints = stops
+      .slice(1, -1)
+      .slice(0, 9)
+      .map(s => encodeURIComponent(`${s.placeName || s.title}, ${s.location || mapData.destination}`))
+      .join('|');
+
+    const googleMapsDirectionsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ''}&travelmode=driving`;
+    window.open(googleMapsDirectionsUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  // Save user Google Maps API key
+  const handleSaveGoogleKey = () => {
+    const cleanKey = tempKeyInput.trim();
+    localStorage.setItem('wandor_google_maps_key', cleanKey);
+    setGoogleMapsKey(cleanKey);
+    setIsKeyModalOpen(false);
+    if (cleanKey) {
+      setMapMode('google');
     }
   };
 
@@ -299,19 +537,16 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
       canvas.width = width;
       canvas.height = height;
 
-      // Background Gradient (Warm Paper Style)
       const grad = ctx.createLinearGradient(0, 0, width, height);
       grad.addColorStop(0, '#fefbf6');
       grad.addColorStop(1, '#f7f2ea');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, width, height);
 
-      // Decorative Border
       ctx.strokeStyle = '#d6cbba';
       ctx.lineWidth = 3;
       ctx.strokeRect(30, 30, width - 60, height - 60);
 
-      // Header Banner
       ctx.fillStyle = '#1c1917';
       ctx.font = 'bold 32px serif';
       ctx.fillText(mapData.destination.toUpperCase(), 60, 90);
@@ -324,7 +559,6 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
       ctx.font = 'bold 15px sans-serif';
       ctx.fillText(`✦ ${mapData.totalStops} CURATED STOPS IN OPTIMIZED ORDER`, 60, 150);
 
-      // Divider
       ctx.strokeStyle = '#e7e0d3';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -332,12 +566,10 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
       ctx.lineTo(width - 60, 175);
       ctx.stroke();
 
-      // Render Numbered Checkpoint Cards
       let y = 220;
       mapData.stops.forEach((stop) => {
         const dayColor = DAY_COLORS[stop.dayNumber] || DAY_COLORS[1];
 
-        // Stop Card Box
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = '#e7e5e4';
         ctx.lineWidth = 1.5;
@@ -346,7 +578,6 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         ctx.fill();
         ctx.stroke();
 
-        // Number Badge
         ctx.fillStyle = dayColor.bg;
         ctx.beginPath();
         ctx.arc(100, y + 8, 20, 0, Math.PI * 2);
@@ -357,20 +588,15 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         ctx.textAlign = 'center';
         ctx.fillText(`${stop.number}`, 100, y + 14);
 
-        // Reset Text Align
         ctx.textAlign = 'left';
-
-        // Day & Time Tag
         ctx.fillStyle = dayColor.bg;
         ctx.font = 'bold 12px sans-serif';
         ctx.fillText(`DAY ${stop.dayNumber} • ${stop.timeSlot.toUpperCase()}`, 140, y - 5);
 
-        // Place Title
         ctx.fillStyle = '#1c1917';
         ctx.font = 'bold 18px sans-serif';
         ctx.fillText(stop.placeName || stop.title, 140, y + 18);
 
-        // Location & Notes
         ctx.fillStyle = '#78716c';
         ctx.font = '13px sans-serif';
         const locNote = stop.transitToNext ? `📍 ${stop.location}  |  🚶 Next: ${stop.transitToNext}` : `📍 ${stop.location}`;
@@ -379,15 +605,13 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         y += 90;
       });
 
-      // Footer
       ctx.fillStyle = '#a8a29e';
       ctx.font = '13px sans-serif';
-      ctx.fillText(`Generated with Wandor Anti-Crowd Travel Engine • wandor.travel`, 60, height - 50);
+      ctx.fillText(`Generated with Wandor Real Google Maps Route Planner • wandor.travel`, 60, height - 50);
 
-      // Download Trigger
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
-      link.download = `${mapData.destination.replace(/[^a-zA-Z0-9]/g, '_')}_Numbered_Route_Map.png`;
+      link.download = `${mapData.destination.replace(/[^a-zA-Z0-9]/g, '_')}_Numbered_Google_Route_Map.png`;
       link.href = dataUrl;
       link.click();
 
@@ -406,9 +630,9 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         <div className="inline-flex items-center justify-center p-4 bg-amber-100/70 text-amber-800 rounded-2xl mb-4 animate-bounce">
           <Compass className="w-8 h-8 animate-spin" style={{ animationDuration: '4s' }} />
         </div>
-        <h3 className="text-lg font-bold text-stone-900 mb-1">Generating Numbered Route Map with Gemini...</h3>
+        <h3 className="text-lg font-bold text-stone-900 mb-1">Generating Real Numbered Route Map...</h3>
         <p className="text-sm text-stone-500 max-w-md mx-auto">
-          Sequencing all daily stops into an anti-crowd visual route with accurate coordinates and transit paths.
+          Sequencing all daily stops into an authentic Google Map route with precise GPS coordinates and transit paths.
         </p>
       </div>
     );
@@ -423,6 +647,11 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
     ? mapData.stops
     : mapData.stops.filter(s => s.dayNumber === selectedDayFilter);
 
+  // Fallback query for Google Map Embed
+  const activePlaceQuery = activeStop
+    ? `${activeStop.placeName || activeStop.title} ${activeStop.location || mapData.destination}`
+    : mapData.destination;
+
   return (
     <div className="bg-white rounded-3xl border border-stone-200/80 shadow-sm overflow-hidden my-8 animate-in fade-in duration-300">
       {/* Map Header & Controls */}
@@ -430,38 +659,151 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold uppercase tracking-wider mb-2">
             <Sparkles className="w-3.5 h-3.5" />
-            Gemini Numbered Route Map
+            Real Google Maps Numbered Route
           </div>
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-white">
-            {mapData.destination} Complete Journey Map
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+            <span>{mapData.destination} Complete Route</span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
+              Google Maps
+            </span>
           </h2>
           <p className="text-sm text-stone-400 mt-1 max-w-xl">
-            {mapData.routeSummary || `Follow the numbers #1 to #${mapData.totalStops} for an optimized, peaceful route avoiding peak crowd hours.`}
+            {mapData.routeSummary || `Follow stops #1 to #${mapData.totalStops} in numbered order for a smooth, crowd-free journey.`}
           </p>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Main Action: Open in Real Google Maps App */}
+          <button
+            onClick={handleOpenFullRouteInGoogleMapsApp}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold uppercase tracking-wider transition-all shadow-md hover:shadow-lg cursor-pointer"
+            title="Open all stops in Google Maps application with driving / walking navigation"
+          >
+            <Route className="w-4 h-4 text-stone-950" />
+            Open Route in Google Maps App
+          </button>
+
+          {/* Google Maps API Key Config */}
+          <button
+            onClick={() => {
+              setTempKeyInput(googleMapsKey);
+              setIsKeyModalOpen(true);
+            }}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold uppercase tracking-wider transition-all border cursor-pointer ${
+              googleMapsKey
+                ? 'bg-emerald-950/50 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/60'
+                : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
+            }`}
+            title="Configure or test your Google Maps API Key"
+          >
+            <Key className="w-3.5 h-3.5" />
+            {googleMapsKey ? 'Google Maps API: Active' : 'Set Google Maps API Key'}
+          </button>
+
+          {/* Download & Print */}
           <button
             onClick={handleDownloadMapImage}
             disabled={isDownloading}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold uppercase tracking-wider transition-all shadow-md hover:shadow-lg cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold uppercase tracking-wider transition-all border border-stone-700 cursor-pointer"
           >
-            <Download className="w-4 h-4" />
-            {isDownloading ? 'Generating Poster...' : downloadSuccess ? '✓ Map Downloaded!' : 'Download Route Map (PNG)'}
+            <Download className="w-3.5 h-3.5" />
+            {isDownloading ? 'Exporting...' : downloadSuccess ? '✓ Saved' : 'Poster'}
           </button>
           <button
             onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold uppercase tracking-wider transition-all border border-stone-700 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold uppercase tracking-wider transition-all border border-stone-700 cursor-pointer"
           >
-            <Printer className="w-4 h-4" />
-            Print Map
+            <Printer className="w-3.5 h-3.5" />
+            Print
           </button>
         </div>
       </div>
 
+      {/* Map Mode & Layer Switcher Bar */}
+      <div className="px-6 py-3 bg-stone-100/90 border-b border-stone-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+        {/* Left: Map Engine Switch */}
+        <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-stone-200/80 shadow-xs">
+          <button
+            onClick={() => {
+              if (!googleMapsKey) {
+                setTempKeyInput('');
+                setIsKeyModalOpen(true);
+              } else {
+                setMapMode('google');
+              }
+            }}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+              mapMode === 'google'
+                ? 'bg-amber-500 text-stone-950 shadow-xs'
+                : 'text-stone-600 hover:bg-stone-100'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            Real Google Maps (JS API)
+            {googleMapsKey && <span className="w-2 h-2 rounded-full bg-emerald-500 ml-0.5" />}
+          </button>
+
+          <button
+            onClick={() => setMapMode('google-embed')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+              mapMode === 'google-embed'
+                ? 'bg-amber-500 text-stone-950 shadow-xs'
+                : 'text-stone-600 hover:bg-stone-100'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            Google Maps (Direct Embed)
+          </button>
+
+          <button
+            onClick={() => setMapMode('leaflet')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
+              mapMode === 'leaflet'
+                ? 'bg-amber-500 text-stone-950 shadow-xs'
+                : 'text-stone-600 hover:bg-stone-100'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            High-Contrast Leaflet
+          </button>
+        </div>
+
+        {/* Right: Map Type Toggle (Satellite vs Roadmap) when on Google Maps JS */}
+        {mapMode === 'google' && isGoogleMapsReady && (
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-stone-200/80 shadow-xs">
+            <button
+              onClick={() => setGoogleMapTypeId('roadmap')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                googleMapTypeId === 'roadmap' ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              <MapIcon className="w-3 h-3" />
+              Roadmap
+            </button>
+            <button
+              onClick={() => setGoogleMapTypeId('satellite')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                googleMapTypeId === 'satellite' ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              <Satellite className="w-3 h-3" />
+              Satellite
+            </button>
+            <button
+              onClick={() => setGoogleMapTypeId('terrain')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                googleMapTypeId === 'terrain' ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              Terrain
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Day Filter Pills */}
-      <div className="px-6 py-4 bg-stone-50 border-b border-stone-200/80 flex flex-wrap items-center gap-2">
+      <div className="px-6 py-3.5 bg-stone-50 border-b border-stone-200/80 flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider mr-2">
           Filter Route:
         </span>
@@ -473,7 +815,7 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
               : 'bg-white text-stone-600 hover:bg-stone-200/70 border border-stone-200'
           }`}
         >
-          Full Route (Stops #1–#{mapData.totalStops})
+          All Stops (#1–#{mapData.totalStops})
         </button>
         {daysList.map((dayNum) => {
           const color = DAY_COLORS[dayNum] || DAY_COLORS[1];
@@ -499,31 +841,98 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         })}
       </div>
 
-      {/* Main Grid: Interactive Map + Numbered Stop List */}
+      {/* Main Grid: Interactive Map (Google or Leaflet) + Numbered Stop List */}
       <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[550px]">
-        {/* Left: Interactive Leaflet Map Container */}
-        <div className="lg:col-span-7 relative bg-stone-100 min-h-[420px] lg:min-h-[550px]">
-          <div ref={mapContainerRef} className="w-full h-full min-h-[420px] lg:min-h-[550px] z-10" />
+        {/* Left Map Viewport */}
+        <div className="lg:col-span-7 relative bg-stone-100 min-h-[440px] lg:min-h-[580px]">
+          {/* Mode 1: Real Google Maps JS API */}
+          {mapMode === 'google' && (
+            <div className="w-full h-full min-h-[440px] lg:min-h-[580px] relative">
+              {isGoogleMapsReady ? (
+                <div ref={googleMapContainerRef} className="w-full h-full min-h-[440px] lg:min-h-[580px]" />
+              ) : (
+                <div className="w-full h-full min-h-[440px] lg:min-h-[580px] flex flex-col items-center justify-center p-8 text-center bg-stone-50">
+                  <div className="p-4 bg-amber-100 text-amber-800 rounded-2xl mb-3 shadow-xs">
+                    <Key className="w-8 h-8 text-amber-600" />
+                  </div>
+                  <h4 className="text-base font-bold text-stone-900 mb-1">Enter Real Google Maps API Key</h4>
+                  <p className="text-xs text-stone-500 max-w-sm mb-4">
+                    To render interactive Google Maps with custom numbered pins and live satellite views, please enter your Google Maps JavaScript API key.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      onClick={() => setIsKeyModalOpen(true)}
+                      className="px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold uppercase tracking-wider cursor-pointer shadow-xs"
+                    >
+                      Enter Google Maps API Key
+                    </button>
+                    <button
+                      onClick={() => setMapMode('google-embed')}
+                      className="px-4 py-2 rounded-full bg-white hover:bg-stone-100 text-stone-700 text-xs font-semibold border border-stone-200 cursor-pointer"
+                    >
+                      Use Zero-Key Google Maps Embed
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mode 2: Real Google Maps Direct Embed (Zero API Key needed) */}
+          {mapMode === 'google-embed' && (
+            <div className="w-full h-full min-h-[440px] lg:min-h-[580px] relative">
+              <iframe
+                title="Google Maps Authentic View"
+                width="100%"
+                height="100%"
+                style={{ border: 0, minHeight: '440px' }}
+                loading="lazy"
+                allowFullScreen
+                referrerPolicy="no-referrer-when-downgrade"
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(activePlaceQuery)}&t=m&z=15&ie=UTF8&iwloc=&output=embed`}
+              />
+              <div className="absolute top-3 left-3 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-md text-[11px] font-semibold text-stone-800 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-amber-600" />
+                <span>Showing: {activeStop ? `#${activeStop.number} ${activeStop.placeName}` : mapData.destination}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Mode 3: Leaflet Voyager Fallback */}
+          {mapMode === 'leaflet' && (
+            <div className="w-full h-full min-h-[440px] lg:min-h-[580px] relative">
+              <div ref={leafletContainerRef} className="w-full h-full min-h-[440px] lg:min-h-[580px] z-10" />
+            </div>
+          )}
 
           {/* Map Overlay Badge */}
-          <div className="absolute top-4 left-4 z-[400] bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-stone-200/80 shadow-md flex items-center gap-2 text-xs font-medium text-stone-700">
-            <Layers className="w-4 h-4 text-amber-600" />
-            <span>Interactive Numbered Pins &bull; Click any pin to inspect</span>
+          <div className="absolute bottom-3 left-3 z-[400] bg-stone-900/90 text-stone-100 backdrop-blur-md px-3 py-1.5 rounded-xl border border-stone-700 shadow-md flex items-center gap-2 text-[11px]">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Interactive Numbered Pins &bull; Click any stop to view on Google Maps</span>
           </div>
         </div>
 
         {/* Right: Stop-by-Stop Numbered Timeline */}
-        <div className="lg:col-span-5 p-6 bg-stone-50/50 overflow-y-auto max-h-[550px] divide-y divide-stone-200/60">
-          <div className="pb-4">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-stone-500 mb-1">
-              Numbered Itinerary Stops
-            </h3>
-            <p className="text-xs text-stone-500">
-              Showing {displayedStops.length} stops for {selectedDayFilter === 'all' ? 'entire journey' : `Day ${selectedDayFilter}`}
-            </p>
+        <div className="lg:col-span-5 p-6 bg-stone-50/50 overflow-y-auto max-h-[580px] divide-y divide-stone-200/60">
+          <div className="pb-3 flex items-center justify-between">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                Numbered Daily Stops
+              </h3>
+              <p className="text-xs text-stone-500">
+                Showing {displayedStops.length} stops for {selectedDayFilter === 'all' ? 'entire journey' : `Day ${selectedDayFilter}`}
+              </p>
+            </div>
+            <button
+              onClick={handleOpenFullRouteInGoogleMapsApp}
+              className="text-[11px] font-bold text-amber-700 hover:text-amber-800 underline underline-offset-2 flex items-center gap-1 cursor-pointer"
+            >
+              Route in Google Maps
+              <ExternalLink className="w-3 h-3" />
+            </button>
           </div>
 
-          <div className="space-y-3 pt-4">
+          <div className="space-y-3 pt-3">
             {displayedStops.map((stop) => {
               const isSelected = activeStop?.number === stop.number;
               const dayColor = DAY_COLORS[stop.dayNumber] || DAY_COLORS[1];
@@ -579,8 +988,8 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
                         </div>
                       )}
 
-                      {/* Google Maps Directions Link */}
-                      <div className="mt-2 flex items-center gap-3">
+                      {/* Direct Google Maps Actions */}
+                      <div className="mt-2.5 pt-2 border-t border-stone-100 flex flex-wrap items-center gap-3">
                         <a
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                             (stop.placeName || stop.title) + ' ' + (stop.location || itinerary.destination)
@@ -588,10 +997,23 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-600 hover:text-stone-950 underline underline-offset-2"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 hover:text-amber-900 underline underline-offset-2"
                         >
                           Open in Google Maps
                           <ExternalLink className="w-3 h-3" />
+                        </a>
+
+                        <a
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                            (stop.placeName || stop.title) + ' ' + (stop.location || itinerary.destination)
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-500 hover:text-stone-800"
+                        >
+                          Directions
+                          <Navigation className="w-3 h-3 text-stone-400" />
                         </a>
                       </div>
                     </div>
@@ -617,6 +1039,65 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
                 <span>{tip}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Google Maps API Key Modal */}
+      {isKeyModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-stone-200">
+              <div className="flex items-center gap-2">
+                <Key className="w-5 h-5 text-amber-600" />
+                <h3 className="font-bold text-stone-900 text-base">Google Maps API Key</h3>
+              </div>
+              <button
+                onClick={() => setIsKeyModalOpen(false)}
+                className="text-stone-400 hover:text-stone-700 font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-600 mt-3 leading-relaxed">
+              Add your Google Maps JavaScript API key to load genuine Google Maps imagery, satellite views, and authentic numbered pin markers.
+            </p>
+
+            <div className="mt-4">
+              <label className="block text-xs font-semibold text-stone-700 mb-1">
+                Google Maps API Key:
+              </label>
+              <input
+                type="text"
+                value={tempKeyInput}
+                onChange={(e) => setTempKeyInput(e.target.value)}
+                placeholder="AIzaSy..."
+                className="w-full px-3.5 py-2 text-xs border border-stone-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500 font-mono"
+              />
+            </div>
+
+            {googleMapsError && (
+              <div className="mt-3 p-2.5 rounded-xl bg-red-50 text-red-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{googleMapsError}</span>
+              </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIsKeyModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveGoogleKey}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer shadow-xs"
+              >
+                Save &amp; Activate Google Maps
+              </button>
+            </div>
           </div>
         </div>
       )}

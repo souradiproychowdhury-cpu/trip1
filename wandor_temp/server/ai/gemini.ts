@@ -20,8 +20,8 @@ export class GeminiProvider implements AIProvider {
   private primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
   private fallbackModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 
-  constructor() {
-    const apiKey = process.env.GEMINI_API_KEY;
+  constructor(explicitKey?: string) {
+    const apiKey = explicitKey || process.env.GEMINI_API_KEY;
     if (apiKey) {
       this.client = new GoogleGenAI({ apiKey });
     }
