@@ -99,15 +99,15 @@ export class GeminiProvider implements AIProvider {
   }
 
   async translateItinerary(itinerary: TripItinerary, language: string = 'English'): Promise<TripItinerary> {
-    const prompt = `Translate all descriptive text, summaries, titles, themes, recommendations, and insider tips in this travel itinerary into ${language}. Keep the place names, landmark names, numbers, and JSON structure identical.\n\nITINERARY_JSON:\n${JSON.stringify(itinerary)}`;
+    const prompt = `Translate all descriptive strings, titles, themes, summaries, descriptions, and insider tips in this travel itinerary JSON into ${language}. Keep the place names, landmark names, numbers, day numbers, and JSON structure identical.\n\nITINERARY_JSON:\n${JSON.stringify(itinerary)}`;
 
     const responseText = await this.generateWithFallback(
       prompt,
       {
-        systemInstruction: `You are a high-speed professional multilingual translator. Return ONLY a valid JSON object matching the input structure with translated text strings in ${language}. Do not change JSON keys, day numbers, times, or currencies.`,
+        systemInstruction: `You are an ultra-fast, professional multilingual travel translator. Return ONLY a valid JSON object matching the input structure with translated text strings in ${language}. Do not change JSON keys, day numbers, times, or currencies.`,
         responseMimeType: 'application/json',
         temperature: 0.1,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 4096,
       }
     );
 

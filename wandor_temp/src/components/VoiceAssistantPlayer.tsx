@@ -7,6 +7,8 @@ export interface VoiceGuideProps {
   defaultText?: string;
   className?: string;
   compact?: boolean;
+  autoPlay?: boolean;
+  title?: string;
 }
 
 interface LanguageOption {
@@ -32,7 +34,9 @@ export const VoiceAssistantPlayer: React.FC<VoiceGuideProps> = ({
   destination,
   defaultText = '',
   className = '',
-  compact = false
+  compact = false,
+  autoPlay = false,
+  title
 }) => {
   const [selectedLang, setSelectedLang] = useState<LanguageOption>(SUPPORTED_LANGUAGES[0]);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -41,6 +45,27 @@ export const VoiceAssistantPlayer: React.FC<VoiceGuideProps> = ({
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // Warm up voices and speech synthesis on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.resume();
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = () => {
+          window.speechSynthesis.getVoices();
+        };
+      }
+    }
+  }, []);
+
+  // Auto-play instantly when result is generated (zero-delay, no network latency)
+  useEffect(() => {
+    if (autoPlay && defaultText && typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.resume();
+      playSpeech(defaultText, selectedLang.speechLang);
+    }
+  }, [autoPlay, defaultText]);
 
   // Stop speech when component unmounts or place changes
   useEffect(() => {
@@ -97,6 +122,7 @@ export const VoiceAssistantPlayer: React.FC<VoiceGuideProps> = ({
     if (!window.speechSynthesis || !text) return;
 
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume();
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = langCode;

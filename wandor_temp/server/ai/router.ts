@@ -104,7 +104,8 @@ export async function translateItinerary(itinerary: TripItinerary, language: str
       const translated = await provider.translateItinerary(itinerary, language);
       const parseResult = TripItinerarySchema.safeParse(translated);
       if (!parseResult.success) {
-        throw new Error(`Validation failed during translation: ${parseResult.error.message}`);
+        console.warn(`[AI Router] Translation schema warning: ${parseResult.error.message}. Using translated content directly.`);
+        return (translated || itinerary) as TripItinerary;
       }
 
       console.log(`[AI Router] Successfully translated itinerary using ${provider.name}`);

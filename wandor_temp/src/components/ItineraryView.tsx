@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -50,6 +50,16 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
   const [isTranslating, setIsTranslating] = useState(false);
   const { formatRange } = useCurrency();
 
+  // Instant client-side translation cache
+  const translationCache = useRef<Record<string, TripItinerary>>({
+    English: itinerary
+  });
+
+  useEffect(() => {
+    setCurrentItinerary(itinerary);
+    translationCache.current = { English: itinerary };
+  }, [itinerary]);
+
   const translationLanguages = [
     'English',
     'Bengali',
@@ -61,15 +71,22 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
     'Japanese'
   ];
 
-  const handleTranslate = async () => {
-    if (!currentItinerary || !selectedLanguage) return;
-    setIsTranslating(true);
+  const handleTranslate = async (langToUse?: string) => {
+    const targetLang = langToUse || selectedLanguage;
+    if (!currentItinerary || !targetLang) return;
 
+    if (translationCache.current[targetLang]) {
+      // 0ms instant switch from client cache
+      setCurrentItinerary(translationCache.current[targetLang]);
+      return;
+    }
+
+    setIsTranslating(true);
     try {
       const response = await fetch('/api/translate-itinerary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itinerary: currentItinerary, language: selectedLanguage })
+        body: JSON.stringify({ itinerary: currentItinerary, language: targetLang })
       });
 
       if (!response.ok) {
@@ -79,6 +96,7 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
 
       const data = await response.json();
       if (data.success && data.itinerary) {
+        translationCache.current[targetLang] = data.itinerary;
         setCurrentItinerary(data.itinerary);
       }
     } catch (err) {
@@ -87,6 +105,69 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
       setIsTranslating(false);
     }
   };
+
+  const handleLanguageChange = (newLang: string) => {
+    setSelectedLanguage(newLang);
+    if (translationCache.current[newLang]) {
+      setCurrentItinerary(translationCache.current[newLang]);
+    } else {
+      handleTranslate(newLang);
+    }
+  };
+
+  // Extract all distinct sightseeing (side seen) stops from the trip plan for the Wikipedia gallery
+  const sightseeingSpots = useMemo(() => {
+    const spots: Array<{
+      id: string;
+      dayNumber: number;
+      slot: string;
+      title: string;
+      placeName: string;
+      location: string;
+      briefDescription?: string;
+      description: string;
+      category: string;
+      time?: string;
+      recommendedEat?: string;
+      lunchSpot?: string;
+      dinnerSpot?: string;
+    }> = [];
+    const seenNames = new Set<string>();
+
+    currentItinerary.days.forEach(day => {
+      const candidates = [
+        { slot: 'Morning', data: day.morning, eat: day.morning?.recommendedEat },
+        { slot: 'Afternoon', data: day.afternoon, eat: day.afternoon?.lunchSpot },
+        { slot: 'Evening', data: day.evening, eat: day.evening?.dinnerSpot },
+        { slot: 'Hidden Gem', data: day.hiddenGem, eat: undefined }
+      ];
+
+      candidates.forEach(({ slot, data, eat }) => {
+        if (!data || !data.placeName) return;
+        const norm = data.placeName.trim().toLowerCase();
+        if (!seenNames.has(norm)) {
+          seenNames.add(norm);
+          spots.push({
+            id: `${day.dayNumber}-${slot}-${data.placeName}`,
+            dayNumber: day.dayNumber,
+            slot,
+            title: data.title,
+            placeName: data.placeName,
+            location: data.location,
+            briefDescription: data.briefDescription,
+            description: data.description,
+            category: `${slot} Sightseeing`,
+            time: data.time,
+            recommendedEat: slot === 'Morning' ? eat : undefined,
+            lunchSpot: slot === 'Afternoon' ? eat : undefined,
+            dinnerSpot: slot === 'Evening' ? eat : undefined,
+          });
+        }
+      });
+    });
+
+    return spots;
+  }, [currentItinerary]);
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -124,9 +205,10 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
         </button>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Multilingual Voice Tour Guide Button */}
+          {/* Multilingual Voice Tour Guide Button with Instant Auto-Play */}
           <VoiceAssistantPlayer
             compact
+            autoPlay={true}
             placeName={currentItinerary.destination}
             destination={currentItinerary.destination}
             defaultText={currentItinerary.summary}
@@ -136,8 +218,8 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
             <label className="sr-only">Language</label>
             <select
               value={selectedLanguage}
-              onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="bg-transparent text-xs text-stone-800 font-semibold outline-none"
+              onChange={(e) => handleLanguageChange(e.target.value)}
+              className="bg-transparent text-xs text-stone-800 font-semibold outline-none cursor-pointer"
               aria-label="Translate itinerary language"
             >
               {translationLanguages.map((lang) => (
@@ -146,9 +228,9 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
             </select>
             <button
               type="button"
-              onClick={handleTranslate}
+              onClick={() => handleTranslate()}
               disabled={isTranslating}
-              className="inline-flex items-center gap-1 rounded-full bg-stone-900 text-white px-3 py-1.5 text-[11px] font-bold hover:bg-stone-700 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-full bg-stone-900 text-white px-3 py-1.5 text-[11px] font-bold hover:bg-stone-700 disabled:opacity-60 cursor-pointer"
             >
               {isTranslating ? '...' : 'Translate'}
             </button>
@@ -222,16 +304,131 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
         </div>
       </div>
 
+      {/* Destination Hero Panoramic Sightseeing Banner */}
+      <div className="mt-6 relative w-full h-56 sm:h-72 rounded-3xl overflow-hidden shadow-md group">
+        <LocationImage
+          placeName={currentItinerary.destination}
+          destination={currentItinerary.destination}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" />
+
+        <div className="absolute top-3 right-3 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/20">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            Wikipedia Sightseeing Photo
+          </span>
+        </div>
+
+        <div className="absolute bottom-4 left-4 right-4 sm:bottom-6 sm:left-6 sm:right-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <span className="text-amber-300 text-xs font-bold uppercase tracking-widest block mb-1">
+              Curated Destination
+            </span>
+            <h2 className="text-white font-heading text-2xl sm:text-4xl font-bold tracking-tight drop-shadow-sm">
+              {currentItinerary.destination}
+            </h2>
+            <p className="text-white/80 text-xs sm:text-sm mt-1 max-w-xl line-clamp-2">
+              {currentItinerary.summary}
+            </p>
+          </div>
+
+          <VoiceAssistantPlayer
+            autoPlay={true}
+            placeName={currentItinerary.destination}
+            destination={currentItinerary.destination}
+            defaultText={`Welcome to ${currentItinerary.destination}! ${currentItinerary.summary}`}
+            title="Instant Audio Tour Guide"
+          />
+        </div>
+      </div>
+
+      {/* Authentic Wikipedia Sightseeing Showcase ("Side Seen") */}
+      {sightseeingSpots.length > 0 && (
+        <div className="mt-8 p-6 rounded-2xl bg-[#FAF6F0] border border-stone-200/90 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-900">
+                  <Sparkles className="w-4 h-4 text-amber-700" />
+                </span>
+                <h3 className="font-heading text-lg sm:text-xl font-bold text-stone-900">
+                  Trip Sightseeing & Landmark Photos
+                </h3>
+              </div>
+              <p className="text-xs text-stone-600 mt-1">
+                Authentic sightseeing photographs fetched live from Wikipedia & Wikimedia Commons for your trip stops.
+              </p>
+            </div>
+            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-white border border-stone-300 text-stone-700">
+              {sightseeingSpots.length} Sightseeing Stops
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+            {sightseeingSpots.map(spot => (
+              <div
+                key={spot.id}
+                onClick={() => setSelectedPlace({
+                  title: spot.title,
+                  placeName: spot.placeName,
+                  location: spot.location,
+                  destination: currentItinerary.destination,
+                  category: spot.category,
+                  briefDescription: spot.briefDescription,
+                  description: spot.description,
+                  time: spot.time,
+                  recommendedEat: spot.recommendedEat,
+                  lunchSpot: spot.lunchSpot,
+                  dinnerSpot: spot.dinnerSpot
+                })}
+                className="group flex flex-col bg-white rounded-xl border border-stone-200 overflow-hidden shadow-2xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer"
+                title="Click to view full photo, brief idea & map"
+              >
+                <div className="relative w-full h-28 bg-stone-100 overflow-hidden">
+                  <LocationImage
+                    placeName={spot.placeName}
+                    location={spot.location}
+                    destination={currentItinerary.destination}
+                    className="w-full h-full"
+                  />
+                  <div className="absolute top-1.5 left-1.5 bg-black/70 backdrop-blur-xs text-white text-[9px] font-bold px-2 py-0.5 rounded-full">
+                    Day {spot.dayNumber}
+                  </div>
+                  <div className="absolute top-1.5 right-1.5 bg-amber-500 text-stone-950 text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                    Wikipedia
+                  </div>
+                </div>
+
+                <div className="p-2.5 flex-1 flex flex-col justify-between">
+                  <div>
+                    <h5 className="font-bold text-xs text-stone-900 line-clamp-1 group-hover:text-amber-700 transition-colors">
+                      {spot.placeName}
+                    </h5>
+                    <p className="text-[11px] text-stone-500 line-clamp-1 mt-0.5">
+                      {spot.location || spot.title}
+                    </p>
+                  </div>
+                  <div className="mt-2 pt-1.5 border-t border-stone-100 flex items-center justify-between text-[10px] text-amber-800 font-medium">
+                    <span>{spot.slot}</span>
+                    <span className="group-hover:translate-x-0.5 transition-transform">Brief idea →</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main View Mode Tabs (Timeline vs Numbered Route Map) */}
       <div className="mt-8 flex items-center justify-between flex-wrap gap-4 p-2 bg-stone-100/90 rounded-2xl border border-stone-200/80">
         <div className="flex items-center gap-1.5 w-full sm:w-auto">
           <button
             onClick={() => setActiveTab('itinerary')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'itinerary'
+            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'itinerary'
                 ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
                 : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-            }`}
+              }`}
           >
             <ListOrdered className="w-4 h-4 text-amber-600" />
             <span>Daily Itinerary</span>
@@ -239,11 +436,10 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
 
           <button
             onClick={() => setActiveTab('map')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              activeTab === 'map'
+            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'map'
                 ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
                 : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
-            }`}
+              }`}
           >
             <MapIcon className="w-4 h-4 text-amber-600" />
             <span className="flex items-center gap-1.5">
@@ -275,11 +471,10 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
           <div className="mt-8 flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
             <button
               onClick={() => setSelectedDay('all')}
-              className={`px-4 py-2 rounded-full text-xs font-semibold tracking-wider uppercase transition-all whitespace-nowrap cursor-pointer ${
-                selectedDay === 'all'
+              className={`px-4 py-2 rounded-full text-xs font-semibold tracking-wider uppercase transition-all whitespace-nowrap cursor-pointer ${selectedDay === 'all'
                   ? 'bg-stone-900 text-white shadow-xs'
                   : 'bg-white/80 hover:bg-white text-stone-700 border border-stone-200'
-              }`}
+                }`}
             >
               All Days ({itinerary.days.length})
             </button>
@@ -288,11 +483,10 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
               <button
                 key={day.dayNumber}
                 onClick={() => setSelectedDay(day.dayNumber)}
-                className={`px-4 py-2 rounded-full text-xs font-semibold tracking-wider uppercase transition-all whitespace-nowrap cursor-pointer ${
-                  selectedDay === day.dayNumber
+                className={`px-4 py-2 rounded-full text-xs font-semibold tracking-wider uppercase transition-all whitespace-nowrap cursor-pointer ${selectedDay === day.dayNumber
                     ? 'bg-stone-900 text-white shadow-xs'
                     : 'bg-white/80 hover:bg-white text-stone-700 border border-stone-200'
-                }`}
+                  }`}
               >
                 Day {day.dayNumber}
               </button>
@@ -302,576 +496,576 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
           {/* Day-by-Day Timeline */}
           <div className="mt-8 space-y-12">
             {displayedDays.map((day) => (
-          <article
-            key={day.dayNumber}
-            className="rounded-[24px] bg-white/70 backdrop-blur-xs border border-stone-200/80 p-6 sm:p-8 shadow-xs"
-          >
-            {/* Day Header */}
-            <div className="flex flex-wrap items-baseline justify-between gap-3 pb-5 border-b border-stone-200">
-              <div className="flex items-center gap-3">
-                <span className="w-9 h-9 rounded-full bg-stone-900 text-white text-sm font-bold flex items-center justify-center">
-                  {day.dayNumber}
-                </span>
-                <div>
-                  <h3 className="font-heading text-xl sm:text-2xl font-bold text-stone-900">
-                    Day {day.dayNumber}: {day.title}
-                  </h3>
-                  <p className="text-xs text-amber-800 font-medium tracking-wide uppercase mt-0.5">
-                    Theme: {day.theme}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Activities: Morning, Afternoon, Evening */}
-            <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Morning */}
-              <div className="p-5 rounded-2xl bg-[#FAF6F0] border border-stone-200/90 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-900">
-                      <Sunrise className="w-4 h-4 text-amber-700" />
-                      Morning
+              <article
+                key={day.dayNumber}
+                className="rounded-[24px] bg-white/70 backdrop-blur-xs border border-stone-200/80 p-6 sm:p-8 shadow-xs"
+              >
+                {/* Day Header */}
+                <div className="flex flex-wrap items-baseline justify-between gap-3 pb-5 border-b border-stone-200">
+                  <div className="flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-full bg-stone-900 text-white text-sm font-bold flex items-center justify-center">
+                      {day.dayNumber}
                     </span>
-                    <span className="text-[11px] font-mono text-stone-500 bg-stone-200/60 px-2 py-0.5 rounded">
-                      {day.morning.time}
-                    </span>
-                  </div>
-
-                  <h4 className="font-heading text-base font-bold text-stone-900 leading-snug">
-                    {day.morning.title}
-                  </h4>
-
-                  {/* Clickable Image Banner with Brief Idea Preview */}
-                  <div
-                    onClick={() => setSelectedPlace({
-                      title: day.morning.title,
-                      placeName: day.morning.placeName,
-                      location: day.morning.location,
-                      destination: itinerary.destination,
-                      category: 'Morning Activity',
-                      briefDescription: day.morning.briefDescription,
-                      description: day.morning.description,
-                      time: day.morning.time,
-                      quietLevel: day.morning.quietLevel,
-                      recommendedEat: day.morning.recommendedEat
-                    })}
-                    className="group relative w-full h-36 rounded-xl mb-3 mt-3 overflow-hidden shadow-sm cursor-pointer"
-                    title="Click to view brief idea, real photo & map"
-                  >
-                    <LocationImage
-                      placeName={day.morning.placeName}
-                      location={day.morning.location}
-                      destination={itinerary.destination}
-                      className="w-full h-full"
-                    />
-                    <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2.5">
-                      <span className="text-[10px] font-medium text-white bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-full flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
-                        <Sparkles className="w-3 h-3 text-amber-300" />
-                        Click for brief idea
-                      </span>
+                    <div>
+                      <h3 className="font-heading text-xl sm:text-2xl font-bold text-stone-900">
+                        Day {day.dayNumber}: {day.title}
+                      </h3>
+                      <p className="text-xs text-amber-800 font-medium tracking-wide uppercase mt-0.5">
+                        Theme: {day.theme}
+                      </p>
                     </div>
                   </div>
+                </div>
 
-                  <p className="mt-2 text-xs sm:text-sm text-stone-600 leading-relaxed">
-                    {day.morning.description}
-                  </p>
+                {/* Activities: Morning, Afternoon, Evening */}
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Morning */}
+                  <div className="p-5 rounded-2xl bg-[#FAF6F0] border border-stone-200/90 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-900">
+                          <Sunrise className="w-4 h-4 text-amber-700" />
+                          Morning
+                        </span>
+                        <span className="text-[11px] font-mono text-stone-500 bg-stone-200/60 px-2 py-0.5 rounded">
+                          {day.morning.time}
+                        </span>
+                      </div>
 
-                  <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
-                    <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-                    <span className="truncate">{day.morning.location}</span>
+                      <h4 className="font-heading text-base font-bold text-stone-900 leading-snug">
+                        {day.morning.title}
+                      </h4>
+
+                      {/* Clickable Image Banner with Brief Idea Preview */}
+                      <div
+                        onClick={() => setSelectedPlace({
+                          title: day.morning.title,
+                          placeName: day.morning.placeName,
+                          location: day.morning.location,
+                          destination: currentItinerary.destination,
+                          category: 'Morning Activity',
+                          briefDescription: day.morning.briefDescription,
+                          description: day.morning.description,
+                          time: day.morning.time,
+                          quietLevel: day.morning.quietLevel,
+                          recommendedEat: day.morning.recommendedEat
+                        })}
+                        className="group relative w-full h-36 rounded-xl mb-3 mt-3 overflow-hidden shadow-sm cursor-pointer"
+                        title="Click to view brief idea, real photo & map"
+                      >
+                        <LocationImage
+                          placeName={day.morning.placeName}
+                          location={day.morning.location}
+                          destination={currentItinerary.destination}
+                          className="w-full h-full"
+                        />
+                        <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2.5">
+                          <span className="text-[10px] font-medium text-white bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-full flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                            <Sparkles className="w-3 h-3 text-amber-300" />
+                            Click for brief idea
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="mt-2 text-xs sm:text-sm text-stone-600 leading-relaxed">
+                        {day.morning.description}
+                      </p>
+
+                      <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
+                        <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                        <span className="truncate">{day.morning.location}</span>
+                      </div>
+
+                      {/* Interactive Button to Learn Brief Idea */}
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlace({
+                            title: day.morning.title,
+                            placeName: day.morning.placeName,
+                            location: day.morning.location,
+                            destination: currentItinerary.destination,
+                            category: 'Morning Activity',
+                            briefDescription: day.morning.briefDescription,
+                            description: day.morning.description,
+                            time: day.morning.time,
+                            quietLevel: day.morning.quietLevel,
+                            recommendedEat: day.morning.recommendedEat
+                          })}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Learn about {day.morning.placeName || 'this place'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {day.morning.recommendedEat && (
+                      <div className="mt-4 pt-3 border-t border-stone-200/70 text-xs text-amber-900 bg-amber-50/60 p-2.5 rounded-xl">
+                        <span className="font-semibold block mb-0.5">☕ Recommended Stop:</span>
+                        <span>{day.morning.recommendedEat}</span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Interactive Button to Learn Brief Idea */}
-                  <div className="mt-3">
+                  {/* Afternoon */}
+                  <div className="p-5 rounded-2xl bg-[#FAF6F0] border border-stone-200/90 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-900">
+                          <Sun className="w-4 h-4 text-amber-600" />
+                          Afternoon
+                        </span>
+                        <span className="text-[11px] font-mono text-stone-500 bg-stone-200/60 px-2 py-0.5 rounded">
+                          {day.afternoon.time}
+                        </span>
+                      </div>
+
+                      <h4 className="font-heading text-base font-bold text-stone-900 leading-snug">
+                        {day.afternoon.title}
+                      </h4>
+
+                      {/* Clickable Image Banner with Brief Idea Preview */}
+                      <div
+                        onClick={() => setSelectedPlace({
+                          title: day.afternoon.title,
+                          placeName: day.afternoon.placeName,
+                          location: day.afternoon.location,
+                          destination: currentItinerary.destination,
+                          category: 'Afternoon Activity',
+                          briefDescription: day.afternoon.briefDescription,
+                          description: day.afternoon.description,
+                          time: day.afternoon.time,
+                          lunchSpot: day.afternoon.lunchSpot
+                        })}
+                        className="group relative w-full h-36 rounded-xl mb-3 mt-3 overflow-hidden shadow-sm cursor-pointer"
+                        title="Click to view brief idea, real photo & map"
+                      >
+                        <LocationImage
+                          placeName={day.afternoon.placeName}
+                          location={day.afternoon.location}
+                          destination={currentItinerary.destination}
+                          className="w-full h-full"
+                        />
+                        <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2.5">
+                          <span className="text-[10px] font-medium text-white bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-full flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                            <Sparkles className="w-3 h-3 text-amber-300" />
+                            Click for brief idea
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="mt-2 text-xs sm:text-sm text-stone-600 leading-relaxed">
+                        {day.afternoon.description}
+                      </p>
+
+                      <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
+                        <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                        <span className="truncate">{day.afternoon.location}</span>
+                      </div>
+
+                      {/* Interactive Button to Learn Brief Idea */}
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlace({
+                            title: day.afternoon.title,
+                            placeName: day.afternoon.placeName,
+                            location: day.afternoon.location,
+                            destination: currentItinerary.destination,
+                            category: 'Afternoon Activity',
+                            briefDescription: day.afternoon.briefDescription,
+                            description: day.afternoon.description,
+                            time: day.afternoon.time,
+                            lunchSpot: day.afternoon.lunchSpot
+                          })}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Learn about {day.afternoon.placeName || 'this place'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {day.afternoon.lunchSpot && (
+                      <div className="mt-4 pt-3 border-t border-stone-200/70 text-xs text-stone-800 bg-stone-100/70 p-2.5 rounded-xl">
+                        <span className="font-semibold block mb-0.5">🥢 Lunch Spot:</span>
+                        <span>{day.afternoon.lunchSpot}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Evening */}
+                  <div className="p-5 rounded-2xl bg-[#FAF6F0] border border-stone-200/90 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-800">
+                          <Sunset className="w-4 h-4 text-orange-600" />
+                          Evening
+                        </span>
+                        <span className="text-[11px] font-mono text-stone-500 bg-stone-200/60 px-2 py-0.5 rounded">
+                          {day.evening.time}
+                        </span>
+                      </div>
+
+                      <h4 className="font-heading text-base font-bold text-stone-900 leading-snug">
+                        {day.evening.title}
+                      </h4>
+
+                      {/* Clickable Image Banner with Brief Idea Preview */}
+                      <div
+                        onClick={() => setSelectedPlace({
+                          title: day.evening.title,
+                          placeName: day.evening.placeName,
+                          location: day.evening.location,
+                          destination: currentItinerary.destination,
+                          category: 'Evening Activity',
+                          briefDescription: day.evening.briefDescription,
+                          description: day.evening.description,
+                          time: day.evening.time,
+                          dinnerSpot: day.evening.dinnerSpot
+                        })}
+                        className="group relative w-full h-36 rounded-xl mb-3 mt-3 overflow-hidden shadow-sm cursor-pointer"
+                        title="Click to view brief idea, real photo & map"
+                      >
+                        <LocationImage
+                          placeName={day.evening.placeName}
+                          location={day.evening.location}
+                          destination={currentItinerary.destination}
+                          className="w-full h-full"
+                        />
+                        <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2.5">
+                          <span className="text-[10px] font-medium text-white bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-full flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                            <Sparkles className="w-3 h-3 text-amber-300" />
+                            Click for brief idea
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="mt-2 text-xs sm:text-sm text-stone-600 leading-relaxed">
+                        {day.evening.description}
+                      </p>
+
+                      <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
+                        <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                        <span className="truncate">{day.evening.location}</span>
+                      </div>
+
+                      {/* Interactive Button to Learn Brief Idea */}
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPlace({
+                            title: day.evening.title,
+                            placeName: day.evening.placeName,
+                            location: day.evening.location,
+                            destination: currentItinerary.destination,
+                            category: 'Evening Activity',
+                            briefDescription: day.evening.briefDescription,
+                            description: day.evening.description,
+                            time: day.evening.time,
+                            dinnerSpot: day.evening.dinnerSpot
+                          })}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Learn about {day.evening.placeName || 'this place'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {day.evening.dinnerSpot && (
+                      <div className="mt-4 pt-3 border-t border-stone-200/70 text-xs text-amber-950 bg-orange-50/60 p-2.5 rounded-xl">
+                        <span className="font-semibold block mb-0.5">🏮 Evening Dinner:</span>
+                        <span>{day.evening.dinnerSpot}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Hidden Gem Callout */}
+                {day.hiddenGem && (
+                  <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 rounded-xl bg-emerald-200/80 text-emerald-900 shrink-0 mt-0.5">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-emerald-950">
+                            Secret Wandor Spot: {day.hiddenGem.name}
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wider bg-emerald-100 px-2 py-0.5 rounded-full text-emerald-800">
+                            {day.hiddenGem.tag}
+                          </span>
+                        </div>
+                        <p className="text-xs text-stone-700 mt-1">
+                          {day.hiddenGem.note}
+                        </p>
+                      </div>
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => setSelectedPlace({
-                        title: day.morning.title,
-                        placeName: day.morning.placeName,
-                        location: day.morning.location,
-                        destination: itinerary.destination,
-                        category: 'Morning Activity',
-                        briefDescription: day.morning.briefDescription,
-                        description: day.morning.description,
-                        time: day.morning.time,
-                        quietLevel: day.morning.quietLevel,
-                        recommendedEat: day.morning.recommendedEat
+                        title: day.hiddenGem.name,
+                        placeName: day.hiddenGem.placeName || day.hiddenGem.name,
+                        location: day.hiddenGem.name,
+                        destination: currentItinerary.destination,
+                        category: 'Secret Wandor Spot',
+                        briefDescription: day.hiddenGem.briefDescription || day.hiddenGem.note,
+                        description: day.hiddenGem.note,
+                        hiddenGemNote: day.hiddenGem.note
                       })}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+                      className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-950 bg-white border border-emerald-300 hover:bg-emerald-100 px-3.5 py-1.5 rounded-full shadow-2xs transition-colors cursor-pointer"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                      <span>Learn about {day.morning.placeName || 'this place'}</span>
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>Explore Secret Spot</span>
                     </button>
                   </div>
-                </div>
-
-                {day.morning.recommendedEat && (
-                  <div className="mt-4 pt-3 border-t border-stone-200/70 text-xs text-amber-900 bg-amber-50/60 p-2.5 rounded-xl">
-                    <span className="font-semibold block mb-0.5">☕ Recommended Stop:</span>
-                    <span>{day.morning.recommendedEat}</span>
-                  </div>
                 )}
+              </article>
+            ))}
+          </div>
+
+          {/* Curated Cafés & Scenic Hikes Grid */}
+          <div className="mt-14 grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Cafés */}
+            <div className="rounded-[24px] bg-white/75 border border-stone-200 p-6 sm:p-7 shadow-xs">
+              <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-stone-200">
+                <Coffee className="w-5 h-5 text-amber-800" />
+                <h3 className="font-heading text-xl font-bold text-stone-900">
+                  Curated Hidden Cafés & Kissaten
+                </h3>
               </div>
-
-              {/* Afternoon */}
-              <div className="p-5 rounded-2xl bg-[#FAF6F0] border border-stone-200/90 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-900">
-                      <Sun className="w-4 h-4 text-amber-600" />
-                      Afternoon
-                    </span>
-                    <span className="text-[11px] font-mono text-stone-500 bg-stone-200/60 px-2 py-0.5 rounded">
-                      {day.afternoon.time}
-                    </span>
-                  </div>
-
-                  <h4 className="font-heading text-base font-bold text-stone-900 leading-snug">
-                    {day.afternoon.title}
-                  </h4>
-
-                  {/* Clickable Image Banner with Brief Idea Preview */}
-                  <div
-                    onClick={() => setSelectedPlace({
-                      title: day.afternoon.title,
-                      placeName: day.afternoon.placeName,
-                      location: day.afternoon.location,
-                      destination: itinerary.destination,
-                      category: 'Afternoon Activity',
-                      briefDescription: day.afternoon.briefDescription,
-                      description: day.afternoon.description,
-                      time: day.afternoon.time,
-                      lunchSpot: day.afternoon.lunchSpot
-                    })}
-                    className="group relative w-full h-36 rounded-xl mb-3 mt-3 overflow-hidden shadow-sm cursor-pointer"
-                    title="Click to view brief idea, real photo & map"
-                  >
-                    <LocationImage
-                      placeName={day.afternoon.placeName}
-                      location={day.afternoon.location}
-                      destination={itinerary.destination}
-                      className="w-full h-full"
-                    />
-                    <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2.5">
-                      <span className="text-[10px] font-medium text-white bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-full flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
-                        <Sparkles className="w-3 h-3 text-amber-300" />
-                        Click for brief idea
-                      </span>
+              <div className="space-y-4">
+                {(currentItinerary.curatedCafes || itinerary.curatedCafes).map((cafe, i) => (
+                  <div key={i} className="p-4 rounded-xl bg-[#FAF6F0] border border-stone-200/80">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <h4 className="font-bold text-stone-900 text-sm">{cafe.name}</h4>
+                      <span className="text-[11px] font-medium text-stone-500">{cafe.neighborhood}</span>
                     </div>
-                  </div>
 
-                  <p className="mt-2 text-xs sm:text-sm text-stone-600 leading-relaxed">
-                    {day.afternoon.description}
-                  </p>
-
-                  <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
-                    <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-                    <span className="truncate">{day.afternoon.location}</span>
-                  </div>
-
-                  {/* Interactive Button to Learn Brief Idea */}
-                  <div className="mt-3">
-                    <button
-                      type="button"
+                    {/* Individual Real Photo for Cafe */}
+                    <div
                       onClick={() => setSelectedPlace({
-                        title: day.afternoon.title,
-                        placeName: day.afternoon.placeName,
-                        location: day.afternoon.location,
-                        destination: itinerary.destination,
-                        category: 'Afternoon Activity',
-                        briefDescription: day.afternoon.briefDescription,
-                        description: day.afternoon.description,
-                        time: day.afternoon.time,
-                        lunchSpot: day.afternoon.lunchSpot
+                        title: cafe.name,
+                        placeName: cafe.placeName || cafe.name,
+                        location: `${cafe.name}, ${cafe.neighborhood}`,
+                        destination: currentItinerary.destination,
+                        category: 'Curated Cafe / Kissaten',
+                        briefDescription: cafe.briefDescription || `${cafe.name} is an atmospheric cafe in ${cafe.neighborhood} known for ${cafe.specialty}. Atmosphere: ${cafe.vibe}`,
+                        description: cafe.vibe,
+                        recommendedEat: cafe.specialty
                       })}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
+                      className="w-full h-32 rounded-xl mb-3 mt-2.5 overflow-hidden shadow-2xs cursor-pointer group relative"
+                      title="Click to view photo & brief idea"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                      <span>Learn about {day.afternoon.placeName || 'this place'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {day.afternoon.lunchSpot && (
-                  <div className="mt-4 pt-3 border-t border-stone-200/70 text-xs text-stone-800 bg-stone-100/70 p-2.5 rounded-xl">
-                    <span className="font-semibold block mb-0.5">🥢 Lunch Spot:</span>
-                    <span>{day.afternoon.lunchSpot}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Evening */}
-              <div className="p-5 rounded-2xl bg-[#FAF6F0] border border-stone-200/90 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-800">
-                      <Sunset className="w-4 h-4 text-orange-600" />
-                      Evening
-                    </span>
-                    <span className="text-[11px] font-mono text-stone-500 bg-stone-200/60 px-2 py-0.5 rounded">
-                      {day.evening.time}
-                    </span>
-                  </div>
-
-                  <h4 className="font-heading text-base font-bold text-stone-900 leading-snug">
-                    {day.evening.title}
-                  </h4>
-
-                  {/* Clickable Image Banner with Brief Idea Preview */}
-                  <div
-                    onClick={() => setSelectedPlace({
-                      title: day.evening.title,
-                      placeName: day.evening.placeName,
-                      location: day.evening.location,
-                      destination: itinerary.destination,
-                      category: 'Evening Activity',
-                      briefDescription: day.evening.briefDescription,
-                      description: day.evening.description,
-                      time: day.evening.time,
-                      dinnerSpot: day.evening.dinnerSpot
-                    })}
-                    className="group relative w-full h-36 rounded-xl mb-3 mt-3 overflow-hidden shadow-sm cursor-pointer"
-                    title="Click to view brief idea, real photo & map"
-                  >
-                    <LocationImage
-                      placeName={day.evening.placeName}
-                      location={day.evening.location}
-                      destination={itinerary.destination}
-                      className="w-full h-full"
-                    />
-                    <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2.5">
-                      <span className="text-[10px] font-medium text-white bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded-full flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
-                        <Sparkles className="w-3 h-3 text-amber-300" />
-                        Click for brief idea
-                      </span>
+                      <LocationImage
+                        placeName={cafe.placeName || cafe.name}
+                        location={`${cafe.name}, ${cafe.neighborhood}`}
+                        destination={currentItinerary.destination}
+                        className="w-full h-full group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2">
+                        <span className="text-[10px] text-white bg-black/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 text-amber-300" />
+                          View photo & details
+                        </span>
+                      </div>
                     </div>
-                  </div>
 
-                  <p className="mt-2 text-xs sm:text-sm text-stone-600 leading-relaxed">
-                    {day.evening.description}
-                  </p>
-
-                  <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
-                    <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-                    <span className="truncate">{day.evening.location}</span>
-                  </div>
-
-                  {/* Interactive Button to Learn Brief Idea */}
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPlace({
-                        title: day.evening.title,
-                        placeName: day.evening.placeName,
-                        location: day.evening.location,
-                        destination: itinerary.destination,
-                        category: 'Evening Activity',
-                        briefDescription: day.evening.briefDescription,
-                        description: day.evening.description,
-                        time: day.evening.time,
-                        dinnerSpot: day.evening.dinnerSpot
-                      })}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-950 bg-amber-100/90 hover:bg-amber-200 px-3 py-1.5 rounded-full transition-colors cursor-pointer"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                      <span>Learn about {day.evening.placeName || 'this place'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {day.evening.dinnerSpot && (
-                  <div className="mt-4 pt-3 border-t border-stone-200/70 text-xs text-amber-950 bg-orange-50/60 p-2.5 rounded-xl">
-                    <span className="font-semibold block mb-0.5">🏮 Evening Dinner:</span>
-                    <span>{day.evening.dinnerSpot}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Hidden Gem Callout */}
-            {day.hiddenGem && (
-              <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-xl bg-emerald-200/80 text-emerald-900 shrink-0 mt-0.5">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-950">
-                        Secret Wandor Spot: {day.hiddenGem.name}
-                      </span>
-                      <span className="text-[10px] uppercase tracking-wider bg-emerald-100 px-2 py-0.5 rounded-full text-emerald-800">
-                        {day.hiddenGem.tag}
-                      </span>
-                    </div>
-                    <p className="text-xs text-stone-700 mt-1">
-                      {day.hiddenGem.note}
+                    <p className="text-xs text-amber-900 font-medium mt-1">
+                      Specialty: {cafe.specialty}
                     </p>
+                    <p className="text-xs text-stone-600 mt-1">
+                      Vibe: {cafe.vibe}
+                    </p>
+                    <p className="text-[11px] text-stone-500 italic mt-1.5 border-t border-stone-200/50 pt-1">
+                      Tip: {cafe.tip}
+                    </p>
+                    <div className="mt-2 pt-2 border-t border-stone-200/40">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPlace({
+                          title: cafe.name,
+                          placeName: cafe.placeName || cafe.name,
+                          location: `${cafe.name}, ${cafe.neighborhood}`,
+                          destination: currentItinerary.destination,
+                          category: 'Curated Cafe',
+                          briefDescription: cafe.briefDescription || `${cafe.name} is an atmospheric cafe in ${cafe.neighborhood} known for ${cafe.specialty}. Atmosphere: ${cafe.vibe}`,
+                          description: cafe.vibe,
+                          recommendedEat: cafe.specialty
+                        })}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 hover:text-amber-950 cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-600" />
+                        <span>View photo & brief idea</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedPlace({
-                    title: day.hiddenGem.name,
-                    placeName: day.hiddenGem.placeName || day.hiddenGem.name,
-                    location: day.hiddenGem.name,
-                    destination: itinerary.destination,
-                    category: 'Secret Wandor Spot',
-                    briefDescription: day.hiddenGem.briefDescription || day.hiddenGem.note,
-                    description: day.hiddenGem.note,
-                    hiddenGemNote: day.hiddenGem.note
-                  })}
-                  className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-950 bg-white border border-emerald-300 hover:bg-emerald-100 px-3.5 py-1.5 rounded-full shadow-2xs transition-colors cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Explore Secret Spot</span>
-                </button>
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
-
-      {/* Curated Cafés & Scenic Hikes Grid */}
-      <div className="mt-14 grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Cafés */}
-        <div className="rounded-[24px] bg-white/75 border border-stone-200 p-6 sm:p-7 shadow-xs">
-          <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-stone-200">
-            <Coffee className="w-5 h-5 text-amber-800" />
-            <h3 className="font-heading text-xl font-bold text-stone-900">
-              Curated Hidden Cafés & Kissaten
-            </h3>
-          </div>
-          <div className="space-y-4">
-            {itinerary.curatedCafes.map((cafe, i) => (
-              <div key={i} className="p-4 rounded-xl bg-[#FAF6F0] border border-stone-200/80">
-                <div className="flex items-baseline justify-between gap-2">
-                  <h4 className="font-bold text-stone-900 text-sm">{cafe.name}</h4>
-                  <span className="text-[11px] font-medium text-stone-500">{cafe.neighborhood}</span>
-                </div>
-
-                {/* Individual Real Photo for Cafe */}
-                <div
-                  onClick={() => setSelectedPlace({
-                    title: cafe.name,
-                    placeName: cafe.placeName || cafe.name,
-                    location: `${cafe.name}, ${cafe.neighborhood}`,
-                    destination: itinerary.destination,
-                    category: 'Curated Cafe / Kissaten',
-                    briefDescription: cafe.briefDescription || `${cafe.name} is an atmospheric cafe in ${cafe.neighborhood} known for ${cafe.specialty}. Atmosphere: ${cafe.vibe}`,
-                    description: cafe.vibe,
-                    recommendedEat: cafe.specialty
-                  })}
-                  className="w-full h-32 rounded-xl mb-3 mt-2.5 overflow-hidden shadow-2xs cursor-pointer group relative"
-                  title="Click to view photo & brief idea"
-                >
-                  <LocationImage
-                    placeName={cafe.placeName || cafe.name}
-                    location={`${cafe.name}, ${cafe.neighborhood}`}
-                    destination={itinerary.destination}
-                    className="w-full h-full group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2">
-                    <span className="text-[10px] text-white bg-black/60 px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-amber-300" />
-                      View photo & details
-                    </span>
-                  </div>
-                </div>
-
-                <p className="text-xs text-amber-900 font-medium mt-1">
-                  Specialty: {cafe.specialty}
-                </p>
-                <p className="text-xs text-stone-600 mt-1">
-                  Vibe: {cafe.vibe}
-                </p>
-                <p className="text-[11px] text-stone-500 italic mt-1.5 border-t border-stone-200/50 pt-1">
-                  Tip: {cafe.tip}
-                </p>
-                <div className="mt-2 pt-2 border-t border-stone-200/40">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPlace({
-                      title: cafe.name,
-                      placeName: cafe.placeName || cafe.name,
-                      location: `${cafe.name}, ${cafe.neighborhood}`,
-                      destination: itinerary.destination,
-                      category: 'Curated Cafe',
-                      briefDescription: cafe.briefDescription || `${cafe.name} is an atmospheric cafe in ${cafe.neighborhood} known for ${cafe.specialty}. Atmosphere: ${cafe.vibe}`,
-                      description: cafe.vibe,
-                      recommendedEat: cafe.specialty
-                    })}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-900 hover:text-amber-950 cursor-pointer"
-                  >
-                    <Sparkles className="w-3 h-3 text-amber-600" />
-                    <span>View photo & brief idea</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Scenic Hikes */}
-        <div className="rounded-[24px] bg-white/75 border border-stone-200 p-6 sm:p-7 shadow-xs">
-          <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-stone-200">
-            <Mountain className="w-5 h-5 text-emerald-800" />
-            <h3 className="font-heading text-xl font-bold text-stone-900">
-              Scenic Hikes & Nature Trails
-            </h3>
-          </div>
-          <div className="space-y-4">
-            {itinerary.scenicHikes.map((hike, i) => (
-              <div key={i} className="p-4 rounded-xl bg-[#FAF6F0] border border-stone-200/80">
-                <div className="flex items-baseline justify-between gap-2">
-                  <h4 className="font-bold text-stone-900 text-sm">{hike.name}</h4>
-                  <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
-                    {hike.difficulty}
-                  </span>
-                </div>
-
-                {/* Individual Real Photo for Scenic Hike */}
-                <div
-                  onClick={() => setSelectedPlace({
-                    title: hike.name,
-                    placeName: hike.placeName || hike.name,
-                    location: hike.name,
-                    destination: itinerary.destination,
-                    category: 'Scenic Nature Trail',
-                    briefDescription: hike.briefDescription || `${hike.name} is a scenic trail (${hike.distance}) with ${hike.difficulty} difficulty. Highlight: ${hike.viewHighlight}`,
-                    description: hike.viewHighlight
-                  })}
-                  className="w-full h-32 rounded-xl mb-3 mt-2.5 overflow-hidden shadow-2xs cursor-pointer group relative"
-                  title="Click to view photo & trail overview"
-                >
-                  <LocationImage
-                    placeName={hike.placeName || hike.name}
-                    location={hike.name}
-                    destination={itinerary.destination}
-                    className="w-full h-full group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2">
-                    <span className="text-[10px] text-white bg-black/60 px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-emerald-300" />
-                      View trail photos & details
-                    </span>
-                  </div>
-                </div>
-
-                <p className="text-xs text-stone-600 mt-1">
-                  <strong>Distance:</strong> {hike.distance}
-                </p>
-                <p className="text-xs text-stone-700 mt-1">
-                  <strong>View Highlight:</strong> {hike.viewHighlight}
-                </p>
-                <div className="mt-2 pt-2 border-t border-stone-200/40">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPlace({
-                      title: hike.name,
-                      placeName: hike.placeName || hike.name,
-                      location: hike.name,
-                      destination: itinerary.destination,
-                      category: 'Scenic Trail',
-                      briefDescription: hike.briefDescription || `${hike.name} is a scenic trail (${hike.distance}) with ${hike.difficulty} difficulty. Highlight: ${hike.viewHighlight}`,
-                      description: hike.viewHighlight
-                    })}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-900 hover:text-emerald-950 cursor-pointer"
-                  >
-                    <Sparkles className="w-3 h-3 text-emerald-600" />
-                    <span>View photo & trail overview</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {/* Insider transit & local tips */}
-            <div className="mt-5 pt-4 border-t border-stone-200">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-stone-800 mb-2">
-                Essential Local Advice
-              </h4>
-              <ul className="space-y-1.5">
-                {itinerary.insiderTips.map((tip, idx) => (
-                  <li key={idx} className="text-xs text-stone-600 flex items-start gap-2">
-                    <span className="text-amber-800 font-bold">•</span>
-                    <span>{tip}</span>
-                  </li>
                 ))}
-              </ul>
+              </div>
             </div>
 
-            {/* Budget Breakdown with Currency Selector */}
-            {itinerary.budgetEstimate && itinerary.budgetEstimate.breakdown && (
-              <div className="p-5 sm:p-6 bg-[#FAF6F0] rounded-2xl border border-stone-200 shadow-2xs mt-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-stone-200">
-                  <h3 className="text-sm font-heading font-bold text-stone-900 flex items-center gap-2">
-                    Budget Breakdown
-                  </h3>
-                  {/* Currency Selector for Trip Budget */}
-                  <CurrencySelector />
-                </div>
-
-                <div className="space-y-2.5 mb-4">
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Flights (Est.)</span>
-                    <span className="font-semibold text-stone-900">
-                      {formatRange(itinerary.budgetEstimate.breakdown.flights.low, itinerary.budgetEstimate.breakdown.flights.high, baseCurrency)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Accommodation</span>
-                    <span className="font-semibold text-stone-900">
-                      {formatRange(itinerary.budgetEstimate.breakdown.accommodation.low, itinerary.budgetEstimate.breakdown.accommodation.high, baseCurrency)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Food & Dining</span>
-                    <span className="font-semibold text-stone-900">
-                      {formatRange(itinerary.budgetEstimate.breakdown.food.low, itinerary.budgetEstimate.breakdown.food.high, baseCurrency)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Activities & Entry</span>
-                    <span className="font-semibold text-stone-900">
-                      {formatRange(itinerary.budgetEstimate.breakdown.activities.low, itinerary.budgetEstimate.breakdown.activities.high, baseCurrency)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-xs text-stone-600">
-                    <span>Local Transport</span>
-                    <span className="font-semibold text-stone-900">
-                      {formatRange(itinerary.budgetEstimate.breakdown.localTransport.low, itinerary.budgetEstimate.breakdown.localTransport.high, baseCurrency)}
-                    </span>
-                  </div>
-                  {itinerary.budgetEstimate.perPersonPerDay && (
-                    <div className="flex justify-between text-xs text-stone-600 pt-1.5 border-t border-stone-200/60">
-                      <span>Per Person / Day</span>
-                      <span className="font-medium text-stone-800">
-                        {formatRange(itinerary.budgetEstimate.perPersonPerDay.low, itinerary.budgetEstimate.perPersonPerDay.high, baseCurrency)}
+            {/* Scenic Hikes */}
+            <div className="rounded-[24px] bg-white/75 border border-stone-200 p-6 sm:p-7 shadow-xs">
+              <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-stone-200">
+                <Mountain className="w-5 h-5 text-emerald-800" />
+                <h3 className="font-heading text-xl font-bold text-stone-900">
+                  Scenic Hikes & Nature Trails
+                </h3>
+              </div>
+              <div className="space-y-4">
+                {(currentItinerary.scenicHikes || itinerary.scenicHikes).map((hike, i) => (
+                  <div key={i} className="p-4 rounded-xl bg-[#FAF6F0] border border-stone-200/80">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <h4 className="font-bold text-stone-900 text-sm">{hike.name}</h4>
+                      <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                        {hike.difficulty}
                       </span>
                     </div>
-                  )}
+
+                    {/* Individual Real Photo for Scenic Hike */}
+                    <div
+                      onClick={() => setSelectedPlace({
+                        title: hike.name,
+                        placeName: hike.placeName || hike.name,
+                        location: hike.name,
+                        destination: currentItinerary.destination,
+                        category: 'Scenic Nature Trail',
+                        briefDescription: hike.briefDescription || `${hike.name} is a scenic trail (${hike.distance}) with ${hike.difficulty} difficulty. Highlight: ${hike.viewHighlight}`,
+                        description: hike.viewHighlight
+                      })}
+                      className="w-full h-32 rounded-xl mb-3 mt-2.5 overflow-hidden shadow-2xs cursor-pointer group relative"
+                      title="Click to view photo & trail overview"
+                    >
+                      <LocationImage
+                        placeName={hike.placeName || hike.name}
+                        location={hike.name}
+                        destination={currentItinerary.destination}
+                        className="w-full h-full group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute inset-0 bg-stone-950/20 group-hover:bg-stone-950/40 transition-colors flex items-end p-2">
+                        <span className="text-[10px] text-white bg-black/60 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 text-emerald-300" />
+                          View trail photos & details
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-stone-600 mt-1">
+                      <strong>Distance:</strong> {hike.distance}
+                    </p>
+                    <p className="text-xs text-stone-700 mt-1">
+                      <strong>View Highlight:</strong> {hike.viewHighlight}
+                    </p>
+                    <div className="mt-2 pt-2 border-t border-stone-200/40">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPlace({
+                          title: hike.name,
+                          placeName: hike.placeName || hike.name,
+                          location: hike.name,
+                          destination: currentItinerary.destination,
+                          category: 'Scenic Trail',
+                          briefDescription: hike.briefDescription || `${hike.name} is a scenic trail (${hike.distance}) with ${hike.difficulty} difficulty. Highlight: ${hike.viewHighlight}`,
+                          description: hike.viewHighlight
+                        })}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-900 hover:text-emerald-950 cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3 text-emerald-600" />
+                        <span>View photo & trail overview</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Insider transit & local tips */}
+                <div className="mt-5 pt-4 border-t border-stone-200">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-stone-800 mb-2">
+                    Essential Local Advice
+                  </h4>
+                  <ul className="space-y-1.5">
+                    {(currentItinerary.insiderTips || itinerary.insiderTips).map((tip, idx) => (
+                      <li key={idx} className="text-xs text-stone-600 flex items-start gap-2">
+                        <span className="text-amber-800 font-bold">•</span>
+                        <span>{tip}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
-                <div className="pt-3 border-t border-stone-300 flex justify-between text-sm sm:text-base font-bold text-stone-900">
-                  <span>Total Estimated Budget</span>
-                  <span className="text-amber-900 font-extrabold">
-                    {formatRange(itinerary.budgetEstimate.totalLow, itinerary.budgetEstimate.totalHigh, baseCurrency)}
-                  </span>
-                </div>
+                {/* Budget Breakdown with Currency Selector */}
+                {(currentItinerary.budgetEstimate || itinerary.budgetEstimate)?.breakdown && (
+                  <div className="p-5 sm:p-6 bg-[#FAF6F0] rounded-2xl border border-stone-200 shadow-2xs mt-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-stone-200">
+                      <h3 className="text-sm font-heading font-bold text-stone-900 flex items-center gap-2">
+                        Budget Breakdown
+                      </h3>
+                      {/* Currency Selector for Trip Budget */}
+                      <CurrencySelector />
+                    </div>
 
-                {itinerary.budgetEstimate.notes && (
-                  <p className="mt-3 text-[10px] text-stone-500 italic leading-snug">
-                    * {itinerary.budgetEstimate.notes}
-                  </p>
+                    <div className="space-y-2.5 mb-4">
+                      <div className="flex justify-between text-xs text-stone-600">
+                        <span>Flights (Est.)</span>
+                        <span className="font-semibold text-stone-900">
+                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.flights.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.flights.high, baseCurrency)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-stone-600">
+                        <span>Accommodation</span>
+                        <span className="font-semibold text-stone-900">
+                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.accommodation.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.accommodation.high, baseCurrency)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-stone-600">
+                        <span>Food & Dining</span>
+                        <span className="font-semibold text-stone-900">
+                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.food.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.food.high, baseCurrency)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-stone-600">
+                        <span>Activities & Entry</span>
+                        <span className="font-semibold text-stone-900">
+                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.activities.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.activities.high, baseCurrency)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-stone-600">
+                        <span>Local Transport</span>
+                        <span className="font-semibold text-stone-900">
+                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.localTransport.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.localTransport.high, baseCurrency)}
+                        </span>
+                      </div>
+                      {(currentItinerary.budgetEstimate || itinerary.budgetEstimate).perPersonPerDay && (
+                        <div className="flex justify-between text-xs text-stone-600 pt-1.5 border-t border-stone-200/60">
+                          <span>Per Person / Day</span>
+                          <span className="font-medium text-stone-800">
+                            {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).perPersonPerDay.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).perPersonPerDay.high, baseCurrency)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-3 border-t border-stone-300 flex justify-between text-sm sm:text-base font-bold text-stone-900">
+                      <span>Total Estimated Budget</span>
+                      <span className="text-amber-900 font-extrabold">
+                        {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).totalLow, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).totalHigh, baseCurrency)}
+                      </span>
+                    </div>
+
+                    {(currentItinerary.budgetEstimate || itinerary.budgetEstimate).notes && (
+                      <p className="mt-3 text-[10px] text-stone-500 italic leading-snug">
+                        * {(currentItinerary.budgetEstimate || itinerary.budgetEstimate).notes}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      </div>
-      </>
+        </>
       )}
 
       {/* AI Customization / Refinement Bar at bottom */}

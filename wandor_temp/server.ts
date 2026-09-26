@@ -308,6 +308,35 @@ const THEME_FALLBACKS = [
   "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=1200"  // coastal/beach
 ];
 
+// Helper: Check if an image URL is an actual authentic photograph (not an SVG logo, map, flag, or coat of arms)
+function isValidPhotoUrl(url?: string | null): boolean {
+  if (!url) return false;
+  const u = url.toLowerCase();
+  if (
+    u.includes('.svg') ||
+    u.includes('logo') ||
+    u.includes('coat_of_arms') ||
+    u.includes('arms_of') ||
+    u.includes('flag_') ||
+    u.includes('flag.') ||
+    u.includes('insignia') ||
+    u.includes('symbol') ||
+    u.includes('location_map') ||
+    u.includes('orthographic') ||
+    u.includes('_map.') ||
+    u.includes('_map_') ||
+    u.includes('emblem') ||
+    u.includes('blason') ||
+    u.includes('icon.') ||
+    u.includes('icon_') ||
+    u.includes('locator') ||
+    u.includes('pointer')
+  ) {
+    return false;
+  }
+  return true;
+}
+
 // Helper: Clean search query for Wikipedia lookup
 function cleanPlaceQuery(raw: string): string {
   return raw
@@ -329,9 +358,12 @@ const LANDMARK_ALIASES: Record<string, string> = {
   'dakshineswar': 'Dakshineswar Kali Temple',
   'belur math': 'Belur Math',
   'prinsep ghat': 'James Prinsep',
+  'eiffel tower': 'Eiffel Tower',
+  'louvre': 'Louvre',
+  'louvre museum': 'Louvre',
 };
 
-// Enhanced Location Image Endpoint
+// Enhanced Wikipedia & Wikimedia Commons Photo Endpoint (Authentic Sightseeing Photos)
 app.get("/api/location-image", async (req, res) => {
   const rawPlace = (req.query.place as string) || '';
   const rawDest = (req.query.destination as string) || '';
@@ -339,10 +371,14 @@ app.get("/api/location-image", async (req, res) => {
 
   const cacheKey = `${rawPlace.toLowerCase()}::${rawDest.toLowerCase()}::${rawQ.toLowerCase()}`;
   if (imageCache.has(cacheKey)) {
-    return res.json({ success: true, imageUrl: imageCache.get(cacheKey) });
+    const cached = imageCache.get(cacheKey)!;
+    if (isValidPhotoUrl(cached)) {
+      return res.json({ success: true, imageUrl: cached, source: 'wikipedia' });
+    }
+    imageCache.delete(cacheKey);
   }
 
-  // Build candidate queries in priority order
+  // Build candidate queries in priority order: specific landmark -> landmark + dest -> destination tourism
   const candidates: string[] = [];
   const normalizedPlace = rawPlace.trim().toLowerCase();
   if (LANDMARK_ALIASES[normalizedPlace]) {
@@ -359,14 +395,16 @@ app.get("/api/location-image", async (req, res) => {
     if (cleanedQ && cleanedQ !== rawPlace) {
       candidates.push(cleanedQ);
     }
-    // Also try first part before comma if any
     const firstPart = rawQ.split(',')[0].trim();
     if (firstPart && !candidates.includes(firstPart)) {
       candidates.push(firstPart);
     }
   }
-  if (rawDest && candidates.length === 0) {
+  // Fallbacks: destination sightseeing on Wikipedia
+  if (rawDest) {
+    candidates.push(`${rawDest} landmarks`);
     candidates.push(`${rawDest} tourism`);
+    candidates.push(rawDest);
   }
 
   const wikiHeaders = {
@@ -378,14 +416,14 @@ app.get("/api/location-image", async (req, res) => {
       if (!query || query.length < 2) continue;
 
       // 1. Search Wikipedia
-      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&srlimit=3`;
+      const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&srlimit=4`;
       const searchRes = await fetch(searchUrl, { headers: wikiHeaders });
       if (!searchRes.ok) continue;
       const searchData = await searchRes.json();
       const hits = searchData.query?.search;
       if (!hits || hits.length === 0) continue;
 
-      // Try hits to find one with a valid thumbnail or image
+      // Try hits to find one with a valid photographic image (NOT a logo/SVG)
       for (const hit of hits) {
         const title = hit.title;
         // Query Wikipedia REST Summary API
@@ -394,32 +432,36 @@ app.get("/api/location-image", async (req, res) => {
           const sumRes = await fetch(sumUrl, { headers: wikiHeaders });
           if (sumRes.ok) {
             const sumData = await sumRes.json();
-            if (sumData.thumbnail?.source) {
-              // Upgrade thumbnail width to high resolution (1000px)
-              const hiResUrl = sumData.thumbnail.source.replace(/\/\d+px-/, '/1000px-');
+            const thumbSrc = sumData.thumbnail?.source;
+            const origSrc = sumData.originalimage?.source;
+
+            if (isValidPhotoUrl(thumbSrc)) {
+              const hiResUrl = thumbSrc.replace(/\/\d+px-/, '/1200px-');
               imageCache.set(cacheKey, hiResUrl);
-              return res.json({ success: true, imageUrl: hiResUrl, title });
+              return res.json({ success: true, imageUrl: hiResUrl, title, source: 'wikipedia' });
             }
-            if (sumData.originalimage?.source) {
-              imageCache.set(cacheKey, sumData.originalimage.source);
-              return res.json({ success: true, imageUrl: sumData.originalimage.source, title });
+            if (isValidPhotoUrl(origSrc)) {
+              imageCache.set(cacheKey, origSrc);
+              return res.json({ success: true, imageUrl: origSrc, title, source: 'wikipedia' });
             }
           }
         } catch (_) {}
       }
-      // 2. Fallback: Search Wikimedia Commons files (namespace 6) for authentic landmark photos
+
+      // 2. Search Wikimedia Commons files (namespace 6) for authentic landmark photographs
       try {
-        const commonsUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrnamespace=6&gsrlimit=3&prop=imageinfo&iiprop=url&iiurlwidth=1000&format=json`;
+        const commonsUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query + ' photo')}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|mime&iiurlwidth=1200&format=json`;
         const cRes = await fetch(commonsUrl, { headers: wikiHeaders });
         if (cRes.ok) {
           const cData = await cRes.json();
           const pages = cData.query?.pages;
           if (pages) {
             for (const id in pages) {
-              const thumbUrl = pages[id]?.imageinfo?.[0]?.thumburl;
-              if (thumbUrl && !thumbUrl.endsWith('.svg')) {
+              const info = pages[id]?.imageinfo?.[0];
+              const thumbUrl = info?.thumburl || info?.url;
+              if (thumbUrl && isValidPhotoUrl(thumbUrl)) {
                 imageCache.set(cacheKey, thumbUrl);
-                return res.json({ success: true, imageUrl: thumbUrl, title: pages[id].title });
+                return res.json({ success: true, imageUrl: thumbUrl, title: pages[id].title, source: 'wikimedia' });
               }
             }
           }
@@ -427,15 +469,31 @@ app.get("/api/location-image", async (req, res) => {
       } catch (_) {}
     }
 
-    // If Wikipedia didn't have a direct photo, pick a deterministic themed photo based on hash of query
-    const hash = (rawPlace || rawQ || rawDest || 'travel').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-    const fallbackImage = THEME_FALLBACKS[hash % THEME_FALLBACKS.length];
+    // 3. If specific search failed, fetch main Wikipedia photo of the destination city
+    if (rawDest) {
+      try {
+        const destSumUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(rawDest)}`;
+        const destRes = await fetch(destSumUrl, { headers: wikiHeaders });
+        if (destRes.ok) {
+          const destData = await destRes.json();
+          const destImg = destData.thumbnail?.source || destData.originalimage?.source;
+          if (isValidPhotoUrl(destImg)) {
+            const hiRes = destImg.replace(/\/\d+px-/, '/1200px-');
+            imageCache.set(cacheKey, hiRes);
+            return res.json({ success: true, imageUrl: hiRes, title: destData.title, source: 'wikipedia-dest' });
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Default safe fallback if network offline
+    const fallbackImage = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=1200";
     imageCache.set(cacheKey, fallbackImage);
-    return res.json({ success: true, imageUrl: fallbackImage });
+    return res.json({ success: true, imageUrl: fallbackImage, source: 'fallback' });
   } catch (error) {
     console.error("Error fetching location image:", error);
-    const fallbackImage = THEME_FALLBACKS[0];
-    return res.json({ success: true, imageUrl: fallbackImage });
+    const fallbackImage = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=1200";
+    return res.json({ success: true, imageUrl: fallbackImage, source: 'fallback' });
   }
 });
 

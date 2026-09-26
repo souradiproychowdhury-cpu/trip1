@@ -24,6 +24,7 @@ export const LocationImage: React.FC<LocationImageProps> = ({
   const [imageUrl, setImageUrl] = useState<string | null>(clientImageCache.get(cacheKey) || null);
   const [isLoading, setIsLoading] = useState(!clientImageCache.has(cacheKey));
   const [hasError, setHasError] = useState(false);
+  const [source, setSource] = useState<string>('wikipedia');
 
   useEffect(() => {
     if (clientImageCache.has(cacheKey)) {
@@ -49,6 +50,7 @@ export const LocationImage: React.FC<LocationImageProps> = ({
         if (isMounted && data.success && data.imageUrl) {
           clientImageCache.set(cacheKey, data.imageUrl);
           setImageUrl(data.imageUrl);
+          if (data.source) setSource(data.source);
         }
       } catch (err) {
         if (isMounted) {
@@ -67,7 +69,7 @@ export const LocationImage: React.FC<LocationImageProps> = ({
     };
   }, [cacheKey, placeName, destination, location]);
 
-  const fallback = "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?auto=format&fit=crop&q=80&w=800";
+  const fallback = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&q=80&w=1200";
 
   return (
     <div
@@ -89,6 +91,15 @@ export const LocationImage: React.FC<LocationImageProps> = ({
         loading="lazy"
         onError={() => setHasError(true)}
       />
+
+      {/* Wikipedia Sightseeing Verified Badge */}
+      {!isLoading && !hasError && imageUrl && (
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-white/95 bg-black/75 backdrop-blur-xs px-2 py-0.5 rounded-full shadow-xs">
+            Wikipedia Photo
+          </span>
+        </div>
+      )}
     </div>
   );
 };
