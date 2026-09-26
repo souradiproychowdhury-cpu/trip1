@@ -592,7 +592,7 @@ app.get("/api/exchange-rates", async (req, res) => {
 
 // Primary Endpoint: Plan Trip
 app.post("/api/plan-trip", aiLimiter, async (req, res) => {
-  const { prompt, attachmentSummary, origin } = req.body;
+  const { prompt, attachmentSummary } = req.body;
   const user = (req as any).user;
 
   if (!prompt || typeof prompt !== "string") {
@@ -600,11 +600,8 @@ app.post("/api/plan-trip", aiLimiter, async (req, res) => {
   }
 
   try {
-    const itinerary = await generateItinerary(prompt, attachmentSummary, origin);
+    const itinerary = await generateItinerary(prompt, attachmentSummary);
     itinerary.id = `trip-${Date.now()}`;
-    if (origin) {
-      itinerary.origin = origin;
-    }
 
     // Save to database if user is logged in
     if (user) {

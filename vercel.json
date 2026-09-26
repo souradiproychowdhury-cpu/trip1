@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "cd wandor_temp && npm install",
+  "buildCommand": "cd wandor_temp && npm install && npm run build && node --eval \"import('fs').then(fs => fs.cpSync('wandor_temp/dist', 'dist', { recursive: true, force: true }))\"",
+  "outputDirectory": "wandor_temp/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

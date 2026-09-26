@@ -23,7 +23,6 @@ import { TripItinerary, DayPlan } from '../types';
 import { LocationImage } from './LocationImage';
 import { PlaceDetailModal, PlaceDetailData } from './PlaceDetailModal';
 import { CurrencyProvider, CurrencySelector, useCurrency } from './CurrencySelector';
-import { TransitRoutesSection } from './TransitRoutesSection';
 import { VoiceAssistantPlayer } from './VoiceAssistantPlayer';
 import { NumberedTripMap } from './NumberedTripMap';
 import { Map as MapIcon, ListOrdered } from 'lucide-react';
@@ -222,13 +221,6 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Journey Transit Routes (Flights, Trains, Buses & Timings) */}
-      <TransitRoutesSection
-        transitRoutes={currentItinerary.transitRoutes}
-        destination={currentItinerary.destination}
-        origin={currentItinerary.origin}
-      />
 
       {/* Main View Mode Tabs (Timeline vs Numbered Route Map) */}
       <div className="mt-8 flex items-center justify-between flex-wrap gap-4 p-2 bg-stone-100/90 rounded-2xl border border-stone-200/80">

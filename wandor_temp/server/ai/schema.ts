@@ -70,58 +70,12 @@ export const BudgetEstimateSchema = z.object({
   notes: z.string(),
 });
 
-// Helper to safely parse string array or comma-separated string or empty
-const FlexibleStringArray = z.union([
-  z.array(z.string()),
-  z.string().transform(str => str.split(/[,;\n]/).map(s => s.trim()).filter(Boolean))
-]).optional().default([]);
-
-export const FlightOptionSchema = z.object({
-  airline: z.string().default('Major Airline'),
-  flightNumberOrType: z.string().optional().default('Direct / Connecting'),
-  route: z.string().optional().default('Direct Route'),
-  duration: z.string().optional().default('Approx. 2-3 hrs'),
-  departureTimes: FlexibleStringArray,
-  arrivalTimes: FlexibleStringArray,
-  estPriceRange: z.string().optional().default('Varies by season'),
-  notes: z.string().optional(),
-});
-
-export const TrainOptionSchema = z.object({
-  trainNameOrNumber: z.string().default('Express Train'),
-  routeStations: z.string().optional().default('Main Stations'),
-  duration: z.string().optional().default('Varies'),
-  departureTimes: FlexibleStringArray,
-  arrivalTimes: FlexibleStringArray,
-  frequency: z.string().optional().default('Daily'),
-  estPriceRange: z.string().optional().default('Standard fare'),
-  bookingTip: z.string().optional(),
-});
-
-export const BusOptionSchema = z.object({
-  operatorOrType: z.string().default('Express Coach / Bus'),
-  route: z.string().optional().default('Highway Route'),
-  duration: z.string().optional().default('Varies'),
-  departureTimes: FlexibleStringArray,
-  frequency: z.string().optional().default('Daily'),
-  estPriceRange: z.string().optional().default('Budget-friendly'),
-  notes: z.string().optional(),
-});
-
-export const TransitRoutesSchema = z.object({
-  origin: z.string().optional().default('Origin City'),
-  flights: z.array(FlightOptionSchema).optional().default([]),
-  trains: z.array(TrainOptionSchema).optional().default([]),
-  buses: z.array(BusOptionSchema).optional().default([]),
-  localTransitTip: z.string().optional(),
-});
-
 export const TripItinerarySchema = z.object({
   id: z.string().optional(),
   title: z.string(),
   destination: z.string(),
   origin: z.string().optional(),
-  transitRoutes: TransitRoutesSchema.optional(),
+  transitRoutes: z.any().optional(),
   duration: z.string(),
   seasonOrDates: z.string(),
   summary: z.string(),
@@ -136,46 +90,47 @@ export const TripItinerarySchema = z.object({
 });
 
 export const SYSTEM_INSTRUCTION = `You are Wandor's master travel curator and anti-crowd planner.
-Your mission is to craft deeply thoughtful, crowd-free, highly atmospheric travel itineraries.
-If the user asks for something completely unrelated to travel planning, politely decline and redirect them to travel topics ("I'm focused on trip planning — want help with an itinerary instead?").
+Your mission is to craft deeply thoughtful, crowd-free, highly atmospheric travel itineraries at lightning speed.
+If the user asks for something completely unrelated to travel planning, politely decline and redirect them to travel topics.
 
-Prioritize:
-- Peaceful early morning visits to landmark sights before tour buses arrive.
-- Neighborhood kissaten, third-wave coffee shops, and independent bakeries.
-- Scenic hikes, nature walks, and hidden cultural sanctuaries.
-- Specific neighborhood locations, authentic food tips, and crowd mitigation strategy.
+CRITICAL GUIDELINES:
+- Do NOT include transit routes, flights, trains, or bus travel suggestions. Focus 100% on the destination experience, neighborhood culture, and daily activities.
+- Keep every description concise, evocative, and punchy (1-2 sentences per item) for fast delivery.
+- Prioritize peaceful early morning visits to landmarks before crowds arrive.
+- Feature independent cafes, scenic walks, and local hidden gems.
 
 Return ONLY a valid JSON object with the exact structure described below. Do not include markdown formatting like \`\`\`json.
+
 Structure requirements:
-- budgetEstimate: Provide realistic numbers based on the destination, duration, season, and stated trip style (budget/mid-range/luxury). Provide currency code (e.g. "USD", "EUR", "INR").
+- budgetEstimate: Provide realistic estimates based on the destination and style. Currency code (e.g. "USD", "EUR", "INR").
 - For EVERY activity (morning, afternoon, evening), hidden gem, cafe, and hike:
-  * "placeName": Provide the exact, canonical landmark or attraction name (e.g., "Kumartuli", "Howrah Bridge", "College Street Coffee House", "Victoria Memorial", "Dal Lake", "Nishat Bagh", "Gulmarg Gondola", "Fushimi Inari-taisha").
-  * "briefDescription": Provide an engaging 1-2 sentence overview explaining what makes this specific place special.
+  * "placeName": Provide the exact, canonical landmark name (e.g., "Kumartuli", "Victoria Memorial", "Howrah Bridge", "Fushimi Inari-taisha").
+  * "briefDescription": Provide a punchy 1-sentence overview of what makes it special.
 
 The JSON structure must strictly conform to this TypeScript interface:
 {
-  "id": "unique-id", // optional, can leave blank
+  "id": "unique-id",
   "title": "Inspiring Title",
   "destination": "Main Destinations",
-  "duration": "e.g. 7 Days",
-  "seasonOrDates": "e.g. October (Autumn Foliage)",
-  "summary": "2-3 sentences evoking the journey's spirit",
-  "vibe": "3-4 comma-separated descriptive words",
-  "crowdStrategy": "Specific tactical advice on how this itinerary avoids tourist congestion",
+  "duration": "e.g. 3 Days",
+  "seasonOrDates": "e.g. Autumn",
+  "summary": "1-2 evocative sentences capturing the journey",
+  "vibe": "3-4 descriptive words",
+  "crowdStrategy": "1-2 tactical sentences on avoiding tourist crowds",
   "budgetEstimate": {
     "currency": "USD",
-    "totalLow": 1000,
-    "totalHigh": 2500,
+    "totalLow": 500,
+    "totalHigh": 1200,
     "breakdown": {
-      "flights": { "low": 300, "high": 800 },
-      "accommodation": { "low": 400, "high": 1000 },
-      "food": { "low": 150, "high": 400 },
-      "activities": { "low": 100, "high": 200 },
-      "localTransport": { "low": 50, "high": 100 },
-      "miscBuffer": { "low": 0, "high": 0 }
+      "flights": { "low": 0, "high": 0 },
+      "accommodation": { "low": 250, "high": 600 },
+      "food": { "low": 150, "high": 350 },
+      "activities": { "low": 50, "high": 150 },
+      "localTransport": { "low": 30, "high": 70 },
+      "miscBuffer": { "low": 20, "high": 30 }
     },
     "perPersonPerDay": { "low": 150, "high": 350 },
-    "notes": "Excludes international flights if origin unknown"
+    "notes": "Estimated on mid-range comfort"
   },
   "generatedAt": "Just now",
   "days": [

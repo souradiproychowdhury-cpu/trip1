@@ -31,7 +31,7 @@ export function getConfiguredProviderNames(): string[] {
   return getActiveProviders().map(p => p.name);
 }
 
-export async function generateItinerary(prompt: string, attachmentText?: string, origin?: string): Promise<TripItinerary> {
+export async function generateItinerary(prompt: string, attachmentText?: string): Promise<TripItinerary> {
   const activeProviders = getActiveProviders();
   if (activeProviders.length === 0) {
     throw new Error('No AI providers configured. Please set GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY.');
@@ -41,7 +41,7 @@ export async function generateItinerary(prompt: string, attachmentText?: string,
 
   for (const provider of activeProviders) {
     try {
-      const result = await provider.generateItinerary(prompt, attachmentText, undefined, origin);
+      const result = await provider.generateItinerary(prompt, attachmentText);
       const parseResult = TripItinerarySchema.safeParse(result);
 
       if (!parseResult.success) {

@@ -17,8 +17,8 @@ function parseJsonSafely(text: string): any {
 export class GeminiProvider implements AIProvider {
   name = 'gemini';
   private client: GoogleGenAI | null = null;
-  private primaryModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-  private fallbackModels = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+  private primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  private fallbackModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -62,11 +62,8 @@ export class GeminiProvider implements AIProvider {
     throw new Error(`All Gemini models failed. Last error: ${lastError?.message || lastError}`);
   }
 
-  async generateItinerary(prompt: string, attachmentText?: string, retryError?: string, origin?: string): Promise<TripItinerary> {
+  async generateItinerary(prompt: string, attachmentText?: string, retryError?: string): Promise<TripItinerary> {
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
-    if (origin) {
-      userMessage += `\nThe traveler is departing from: "${origin}".`;
-    }
     if (attachmentText) {
       userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;
     }
@@ -77,8 +74,8 @@ export class GeminiProvider implements AIProvider {
     const responseText = await this.generateWithFallback(userMessage, {
       systemInstruction: SYSTEM_INSTRUCTION,
       responseMimeType: 'application/json',
-      temperature: 0.3,
-      maxOutputTokens: 8192,
+      temperature: 0.2,
+      maxOutputTokens: 4096,
     });
 
     return parseJsonSafely(responseText);

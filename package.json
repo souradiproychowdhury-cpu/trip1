@@ -1,10 +1,11 @@
 {
+  "name": "trip1",
+  "private": true,
   "scripts": {
+    "install:all": "npm install --prefix wandor_temp",
     "dev": "npm run dev --prefix wandor_temp",
-    "build": "npm run build --prefix wandor_temp",
-    "preview": "npm run start --prefix wandor_temp"
-  },
-  "dependencies": {
-    "@google/genai": "^2.21.0"
+    "build": "cd wandor_temp && npm install && npm run build && node --eval \"import('fs').then(fs => fs.cpSync('wandor_temp/dist', 'dist', { recursive: true, force: true }))\"",
+    "start": "npm run start --prefix wandor_temp",
+    "preview": "npm run preview --prefix wandor_temp"
   }
 }

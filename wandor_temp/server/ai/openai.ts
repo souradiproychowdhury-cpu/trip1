@@ -19,13 +19,10 @@ export class OpenAIProvider implements AIProvider {
     return this.client !== null;
   }
 
-  async generateItinerary(prompt: string, attachmentText?: string, retryError?: string, origin?: string): Promise<TripItinerary> {
+  async generateItinerary(prompt: string, attachmentText?: string, retryError?: string): Promise<TripItinerary> {
     if (!this.client) throw new Error('OpenAI not configured');
 
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
-    if (origin) {
-      userMessage += `\nThe traveler is departing / traveling from: "${origin}". Please provide full transitRoutes (flight routes & timings, train routes & timings, bus/highway routes & timings from ${origin} to the destination).`;
-    }
     if (attachmentText) {
       userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;
     }

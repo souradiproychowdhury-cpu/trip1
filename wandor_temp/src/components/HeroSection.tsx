@@ -14,8 +14,6 @@ const PROMPT_PRESETS: string[] = [
 interface HeroSectionProps {
   prompt: string;
   setPrompt: (value: string) => void;
-  origin?: string;
-  setOrigin?: (value: string) => void;
   onPlanTrip: () => void;
   isLoading: boolean;
   onOpenAttachmentModal: () => void;
@@ -26,8 +24,6 @@ interface HeroSectionProps {
 export const HeroSection: React.FC<HeroSectionProps> = ({
   prompt,
   setPrompt,
-  origin,
-  setOrigin,
   onPlanTrip,
   isLoading,
   onOpenAttachmentModal,
@@ -67,21 +63,6 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         {/* The Central AI Prompt Box Card matching reference image */}
         <div className="mt-8 sm:mt-10 max-w-2xl mx-auto">
           <div className="wandor-card rounded-[28px] sm:rounded-[34px] p-5 sm:p-7 text-left transition-all duration-300">
-            {/* Origin Departure Location Input */}
-            <div className="flex items-center gap-2 mb-3 pb-3 border-b border-stone-200/60">
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100/90 text-amber-950 text-xs font-semibold shrink-0">
-                <MapPin className="w-3.5 h-3.5 text-amber-700" />
-                <span>Departing from:</span>
-              </div>
-              <input
-                type="text"
-                value={origin || ''}
-                onChange={(e) => setOrigin?.(e.target.value)}
-                placeholder="e.g. New Delhi, London, Kolkata, Mumbai..."
-                className="flex-1 text-xs sm:text-sm bg-transparent border-0 focus:outline-none text-stone-800 placeholder:text-stone-400 font-medium"
-              />
-            </div>
-
             {/* Textarea Input */}
             <div className="relative min-h-[90px] sm:min-h-[105px]">
               <textarea

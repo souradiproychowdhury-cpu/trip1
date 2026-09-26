@@ -20,7 +20,6 @@ export default function App() {
   const [prompt, setPrompt] = useState<string>(
     "I'm planning a 7-day trip to Japan in October. I love food, hidden cafés, scenic hikes, and want to avoid crowds...."
   );
-  const [origin, setOrigin] = useState<string>('');
   const [itinerary, setItinerary] = useState<TripItinerary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRefining, setIsRefining] = useState<boolean>(false);
@@ -69,7 +68,6 @@ export default function App() {
         },
         body: JSON.stringify({
           prompt,
-          origin,
           attachmentSummary: attachment?.summary,
           attachmentBase64: attachment?.base64,
           attachmentMimeType: attachment?.mimeType,
@@ -223,8 +221,6 @@ export default function App() {
           <HeroSection
             prompt={prompt}
             setPrompt={setPrompt}
-            origin={origin}
-            setOrigin={setOrigin}
             onPlanTrip={handlePlanTrip}
             isLoading={isLoading}
             onOpenAttachmentModal={() => setIsAttachmentModalOpen(true)}
