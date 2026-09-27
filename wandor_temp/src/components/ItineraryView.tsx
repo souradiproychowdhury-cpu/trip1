@@ -218,13 +218,14 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
         </button>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Multilingual Voice Tour Guide Button with Instant Auto-Play */}
+          {/* Multilingual Voice Tour Guide Button (Compact) */}
           <VoiceAssistantPlayer
             compact
-            autoPlay={true}
+            autoPlay={false}
             placeName={currentItinerary.destination}
             destination={currentItinerary.destination}
-            defaultText={currentItinerary.summary}
+            defaultText={currentItinerary.destinationIntro || currentItinerary.summary}
+            initialLanguage={currentItinerary.language || selectedLanguage}
           />
 
           <div className="flex items-center gap-2 rounded-full bg-white/80 border border-stone-300 px-2 py-1">
@@ -288,6 +289,18 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
         <p className="mt-3 text-stone-600 text-base sm:text-lg leading-relaxed max-w-4xl">
           {currentItinerary.summary}
         </p>
+      </div>
+
+      {/* 2-3 Line Destination Introduction & Auto-Spoken Audio Guide Card */}
+      <div className="mt-6">
+        <VoiceAssistantPlayer
+          autoPlay={true}
+          placeName={currentItinerary.destination}
+          destination={currentItinerary.destination}
+          defaultText={currentItinerary.destinationIntro || currentItinerary.summary}
+          initialLanguage={currentItinerary.language || selectedLanguage}
+          showTextInline={true}
+        />
       </div>
 
       {/* Crowd Avoidance Strategy Banner */}

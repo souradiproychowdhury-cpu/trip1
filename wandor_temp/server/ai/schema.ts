@@ -76,6 +76,8 @@ export const TripItinerarySchema = z.object({
   id: z.string().optional(),
   title: z.string(),
   destination: z.string(),
+  destinationIntro: z.string().optional(),
+  language: z.string().optional(),
   origin: z.string().optional(),
   transitRoutes: z.any().optional(),
   duration: z.string(),
@@ -99,7 +101,9 @@ CRITICAL GUIDELINES:
 - MULTILINGUAL & MOTHER-LANGUAGE SUPPORT:
   * The user can plan a trip in ANY language (such as Bengali / বাংলা, Hindi / हिन्दी, Urdu / اردو, Spanish / Español, French, German, Italian, Japanese, etc.) or a natural bilingual mix.
   * You must fully understand the prompt in whichever language it is given.
-  * When the prompt is in a non-English language (e.g. Bengali, Hindi, Spanish) or an explicit output language is requested, write all titles, summaries, day themes, activity descriptions, hidden gem notes, cafe vibes, and insider tips naturally and beautifully in that language!
+  * When the prompt is in a non-English language (e.g. Bengali, Hindi, Spanish) or an explicit output language is requested, write all titles, destinationIntro, summaries, day themes, activity descriptions, hidden gem notes, cafe vibes, and insider tips naturally and beautifully in that language!
+  * "destinationIntro": CRITICAL REQUIREMENT - Provide a rich, poetic, 2 to 3 line description of this destination/place in the exact language of the prompt (e.g. Bengali if prompt is Bengali, Hindi if prompt is Hindi, English if English). This will be spoken aloud to the traveler automatically as an audio guide introduction.
+  * "language": Name of the language used (e.g. "Bengali", "Hindi", "English").
   * For map navigation, keep the "placeName" field canonical and recognizable (transliterated or original name).
 - PARTY SIZE & PER-PERSON BUDGETING:
   * When a number of people / travelers is given (e.g. 3 people / ৩ জন / 3 लोग), accurately calculate:
@@ -126,6 +130,8 @@ The JSON structure must strictly conform to this TypeScript interface:
   "id": "unique-id",
   "title": "Inspiring Title",
   "destination": "Main Destinations",
+  "destinationIntro": "2-3 evocative lines introducing the destination in the user's language",
+  "language": "e.g. Bengali / Hindi / English",
   "duration": "e.g. 3 Days",
   "seasonOrDates": "e.g. Autumn",
   "summary": "1-2 evocative sentences capturing the journey",

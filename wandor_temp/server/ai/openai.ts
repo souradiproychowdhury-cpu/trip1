@@ -28,11 +28,16 @@ export class OpenAIProvider implements AIProvider {
     if (!this.client) throw new Error('OpenAI not configured');
 
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
+    userMessage += `\n\nLANGUAGE & VOICE INTRO REQUIREMENT:
+- Detect the language of the traveler's prompt. If the prompt is written in Bengali / বাংলা, Hindi / हिन्दी, Urdu / اردو, Spanish, etc., you MUST write the entire itinerary ("destinationIntro", "summary", "title", themes, activity descriptions, hidden gems) naturally and beautifully in that exact language.
+- "destinationIntro": You MUST include an evocative, atmospheric 2 to 3 line description introducing this destination in the user's language. This will be spoken aloud to the traveler automatically.
+- "language": State the language name used (e.g. "Bengali", "Hindi", "English").`;
+
     if (options?.travelersCount && options.travelersCount > 0) {
       userMessage += `\n\nTRAVEL PARTY: ${options.travelersCount} traveler(s). Calculate the budget for this party size: totalLow & totalHigh must be the full total for all ${options.travelersCount} travelers combined, and perPersonTotal & perPersonPerDay must be the individual per-person amount.`;
     }
     if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
-      userMessage += `\n\nLANGUAGE PREFERENCE: Please generate all itinerary descriptions, titles, summaries, themes, vibes, notes, and insider tips naturally in ${options.language}. Keep canonical landmark placeNames recognizable.`;
+      userMessage += `\n\nEXPLICIT LANGUAGE PREFERENCE: Please generate all itinerary descriptions, "destinationIntro", titles, summaries, themes, vibes, notes, and insider tips naturally in ${options.language}. Keep canonical landmark placeNames recognizable.`;
     }
     if (attachmentText) {
       userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;
@@ -62,6 +67,19 @@ export class OpenAIProvider implements AIProvider {
           high: Math.round(parsed.budgetEstimate.totalHigh / Math.max(travelersCount, 1)),
         };
       }
+    }
+
+    if (!parsed.destinationIntro && parsed.summary) {
+      parsed.destinationIntro = parsed.summary;
+    }
+
+    if (!parsed.language) {
+      const sampleText = `${prompt} ${parsed.summary || ''} ${parsed.destinationIntro || ''}`;
+      if (/[\u0980-\u09FF]/.test(sampleText)) parsed.language = 'Bengali';
+      else if (/[\u0900-\u097F]/.test(sampleText)) parsed.language = 'Hindi';
+      else if (/[\u0600-\u06FF]/.test(sampleText)) parsed.language = 'Urdu';
+      else if (options?.language && options.language !== 'Auto') parsed.language = options.language;
+      else parsed.language = 'English';
     }
     return parsed;
   }

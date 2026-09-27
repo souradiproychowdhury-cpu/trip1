@@ -172,6 +172,9 @@ export default function App() {
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.itinerary) {
+          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+          }
           setItinerary(data.itinerary);
           setActiveTab('itinerary');
           showToast('Itinerary created successfully!');
@@ -219,6 +222,9 @@ export default function App() {
     .then(res => res.json())
     .then(data => {
       if (data.success && data.itinerary) {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
         setItinerary(data.itinerary);
         setActiveTab('itinerary');
         showToast('Itinerary created successfully!');

@@ -126,6 +126,8 @@ export interface TripItinerary {
   id: string;
   title: string;
   destination: string;
+  destinationIntro?: string;
+  language?: string;
   origin?: string;
   transitRoutes?: TransitRoutesInfo;
   hotels?: HotelOption[];
