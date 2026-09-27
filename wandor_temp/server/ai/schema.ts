@@ -43,7 +43,7 @@ export const CafeSpotSchema = z.object({
 export const HikeSpotSchema = z.object({
   name: z.string(),
   distance: z.string(),
-  difficulty: z.enum(['Easy', 'Moderate', 'Challenging']),
+  difficulty: z.string(),
   viewHighlight: z.string(),
   placeName: z.string().optional(),
   briefDescription: z.string().optional(),
