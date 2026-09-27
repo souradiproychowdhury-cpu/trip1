@@ -6,7 +6,7 @@ async function run() {
   const t0 = Date.now();
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-3.5-flash-lite',
       contents: 'Create a 1-day itinerary for Kyoto in JSON format with title, destination, summary, and days array.',
       config: {
         responseMimeType: 'application/json',

@@ -18,7 +18,7 @@ export class GeminiProvider implements AIProvider {
   name = 'gemini';
   private client: GoogleGenAI | null = null;
   private primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
-  private fallbackModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  private fallbackModels = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
 
   constructor(explicitKey?: string) {
     const apiKey = explicitKey || process.env.GEMINI_API_KEY;
@@ -65,7 +65,7 @@ export class GeminiProvider implements AIProvider {
   async generateItinerary(prompt: string, attachmentText?: string, retryError?: string): Promise<TripItinerary> {
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
     if (attachmentText) {
-      userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;
+      userMessage += `\n\nATTACHED TRAVEL TICKETS / RESERVATIONS / BOOKINGS:\n"""\n${attachmentText}\n"""\nIMPORTANT: Align the destination, dates, times, and activities with the attached ticket/reservation details above.`;
     }
     if (retryError) {
       userMessage += `\n\nWARNING: Your last response failed validation with the following error:\n${retryError}\n\nPlease fix these issues and ensure your response strictly matches the required JSON schema.`;
@@ -75,7 +75,7 @@ export class GeminiProvider implements AIProvider {
       systemInstruction: SYSTEM_INSTRUCTION,
       responseMimeType: 'application/json',
       temperature: 0.2,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 3500,
     });
 
     return parseJsonSafely(responseText);
@@ -91,8 +91,8 @@ export class GeminiProvider implements AIProvider {
     const responseText = await this.generateWithFallback(prompt, {
       systemInstruction: SYSTEM_INSTRUCTION,
       responseMimeType: 'application/json',
-      temperature: 0.4,
-      maxOutputTokens: 8192,
+      temperature: 0.3,
+      maxOutputTokens: 4096,
     });
 
     return parseJsonSafely(responseText);
@@ -107,7 +107,7 @@ export class GeminiProvider implements AIProvider {
         systemInstruction: `You are an ultra-fast, professional multilingual travel translator. Return ONLY a valid JSON object matching the input structure with translated text strings in ${language}. Do not change JSON keys, day numbers, times, or currencies.`,
         responseMimeType: 'application/json',
         temperature: 0.1,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 3500,
       }
     );
 
@@ -115,7 +115,7 @@ export class GeminiProvider implements AIProvider {
   }
 
   async extractText(base64Data: string, mimeType: string): Promise<string> {
-    const prompt = 'Transcribe all readable text, dates, times, prices, and confirmation numbers from this document.';
+    const prompt = 'Analyze this travel ticket, booking confirmation, hotel reservation, flight boarding pass, or travel document. Extract all essential details: Traveler names, Origin & Destination, Travel Dates & Flight/Train Times, Booking/PNR numbers, Hotel addresses, and any special notes. Return a clean, formatted summary that an itinerary planner can use.';
 
     return await this.generateWithFallback(
       [
@@ -127,7 +127,10 @@ export class GeminiProvider implements AIProvider {
         },
         prompt
       ],
-      {}
+      {
+        temperature: 0.1,
+        maxOutputTokens: 1024,
+      }
     );
   }
 }

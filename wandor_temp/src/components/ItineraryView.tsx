@@ -25,7 +25,9 @@ import { PlaceDetailModal, PlaceDetailData } from './PlaceDetailModal';
 import { CurrencyProvider, CurrencySelector, useCurrency } from './CurrencySelector';
 import { VoiceAssistantPlayer } from './VoiceAssistantPlayer';
 import { NumberedTripMap } from './NumberedTripMap';
-import { Map as MapIcon, ListOrdered } from 'lucide-react';
+import { TransitRoutesSection } from './TransitRoutesSection';
+import { HotelSuggestionsSection } from './HotelSuggestionsSection';
+import { Map as MapIcon, ListOrdered, Plane, Building2 } from 'lucide-react';
 
 interface ItineraryViewProps {
   itinerary: TripItinerary;
@@ -42,7 +44,7 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
 }) => {
   const [currentItinerary, setCurrentItinerary] = useState<TripItinerary>(itinerary);
   const [selectedDay, setSelectedDay] = useState<number | 'all'>('all');
-  const [activeTab, setActiveTab] = useState<'itinerary' | 'map'>('itinerary');
+  const [activeTab, setActiveTab] = useState<'itinerary' | 'map' | 'transit' | 'hotels'>('itinerary');
   const [copied, setCopied] = useState(false);
   const [refineText, setRefineText] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceDetailData | null>(null);
@@ -449,10 +451,42 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
               </span>
             </span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('transit')}
+            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'transit'
+                ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+              }`}
+          >
+            <Plane className="w-4 h-4 text-amber-600" />
+            <span className="flex items-center gap-1.5">
+              Flights &amp; Trains
+              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-emerald-100 text-emerald-900 font-bold">
+                Timings API
+              </span>
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('hotels')}
+            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'hotels'
+                ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+              }`}
+          >
+            <Building2 className="w-4 h-4 text-amber-600" />
+            <span className="flex items-center gap-1.5">
+              Hotels &amp; Stays
+              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-amber-100 text-amber-900 font-bold">
+                Partner API
+              </span>
+            </span>
+          </button>
         </div>
 
         <div className="text-xs text-stone-500 hidden md:block pr-2">
-          {activeTab === 'map' ? '✦ Interactive map with download poster feature' : '✦ Anti-crowd day-by-day plan'}
+          {activeTab === 'map' ? '✦ Interactive map with download poster feature' : activeTab === 'transit' ? '✦ Live flight & train schedules via API' : activeTab === 'hotels' ? '✦ Handpicked hotels & live partner booking' : '✦ Anti-crowd day-by-day plan'}
         </div>
       </div>
 
@@ -461,6 +495,23 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
         <NumberedTripMap
           itinerary={currentItinerary}
           onSelectPlace={(p) => setSelectedPlace(p as any)}
+        />
+      )}
+
+      {/* Transit Routes View (Flights & Train Timings) */}
+      {activeTab === 'transit' && (
+        <TransitRoutesSection
+          transitRoutes={currentItinerary.transitRoutes}
+          destination={currentItinerary.destination}
+          origin={currentItinerary.origin}
+        />
+      )}
+
+      {/* Hotels & Stays View */}
+      {activeTab === 'hotels' && (
+        <HotelSuggestionsSection
+          hotels={currentItinerary.hotels}
+          destination={currentItinerary.destination}
         />
       )}
 
@@ -981,7 +1032,7 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
                   </div>
                 ))}
 
-                {/* Insider transit & local tips */}
+                {/* Essential Local Advice */}
                 <div className="mt-5 pt-4 border-t border-stone-200">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-stone-800 mb-2">
                     Essential Local Advice
@@ -995,6 +1046,19 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
                     ))}
                   </ul>
                 </div>
+
+                {/* Journey & Transit Routes Section (Flights & Train Timings) */}
+                <TransitRoutesSection
+                  transitRoutes={currentItinerary.transitRoutes}
+                  destination={currentItinerary.destination}
+                  origin={currentItinerary.origin}
+                />
+
+                {/* Recommended Hotels & Stays (Travel Partner API) */}
+                <HotelSuggestionsSection
+                  hotels={currentItinerary.hotels}
+                  destination={currentItinerary.destination}
+                />
 
                 {/* Budget Breakdown with Currency Selector */}
                 {(currentItinerary.budgetEstimate || itinerary.budgetEstimate)?.breakdown && (

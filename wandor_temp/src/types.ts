@@ -103,12 +103,30 @@ export interface TransitRoutesInfo {
   localTransitTip?: string;
 }
 
+export interface HotelOption {
+  id?: string;
+  name: string;
+  category: 'Luxury' | 'Boutique' | 'Mid-range' | 'Budget' | 'Heritage' | 'Resort';
+  rating: number;
+  reviewsCount?: number;
+  pricePerNight: string;
+  address: string;
+  neighborhood?: string;
+  amenities: string[];
+  description: string;
+  bookingUrl?: string;
+  imageUrl?: string;
+  distanceToCenter?: string;
+  source?: 'travel-partner' | 'google-hotels' | 'curated';
+}
+
 export interface TripItinerary {
   id: string;
   title: string;
   destination: string;
   origin?: string;
   transitRoutes?: TransitRoutesInfo;
+  hotels?: HotelOption[];
   duration: string;
   seasonOrDates: string;
   summary: string;

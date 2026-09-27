@@ -73,12 +73,14 @@ export const AttachmentModal: React.FC<AttachmentModalProps> = ({
     formData.append('file', file);
 
     try {
+      const clientKey = localStorage.getItem('wandor_gemini_key') || '';
       const res = await fetch('/api/extract-attachment', {
         method: 'POST',
+        headers: clientKey ? { 'x-gemini-key': clientKey } : {},
         body: formData
       });
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && data.success) {
         setExtractedText(data.text || '');
       } else {
         setErrorMsg(data.error || 'Failed to extract text from document');

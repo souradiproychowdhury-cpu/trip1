@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Upload, Sparkles, X, Check, Compass, ArrowRight, MapPin } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, Sparkles, X, Check, Compass, ArrowRight, MapPin, Mic, MicOff } from 'lucide-react';
 import { WorldLandmarksPanorama } from './WorldLandmarksPanorama';
 import { VintagePencilClouds } from './VintagePencilClouds';
 
@@ -31,6 +31,68 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   onRemoveAttachment
 }) => {
   const [activePresetIndex, setActivePresetIndex] = useState<number>(0);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [voiceSupported, setVoiceSupported] = useState<boolean>(true);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setVoiceSupported(false);
+    }
+  }, []);
+
+  const handleToggleVoice = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      return;
+    }
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript) {
+          setPrompt(transcript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Voice command error:", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.warn("Could not start speech recognition:", err);
+      setIsListening(false);
+    }
+  };
 
   const handlePresetClick = (preset: string, index: number) => {
     setPrompt(preset);
@@ -62,17 +124,25 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
         {/* The Central AI Prompt Box Card matching reference image */}
         <div className="mt-8 sm:mt-10 max-w-2xl mx-auto">
-          <div className="wandor-card rounded-[28px] sm:rounded-[34px] p-5 sm:p-7 text-left transition-all duration-300">
+          <div className={`wandor-card rounded-[28px] sm:rounded-[34px] p-5 sm:p-7 text-left transition-all duration-300 ${isListening ? 'ring-2 ring-amber-500 shadow-lg' : ''}`}>
             {/* Textarea Input */}
             <div className="relative min-h-[90px] sm:min-h-[105px]">
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 rows={3}
-                placeholder="I'm planning a 7-day trip to Japan in October. I love food, hidden cafés, scenic hikes, and want to avoid crowds...."
+                placeholder="Please tell me where to go, how many days, and what you love to do..."
                 className="w-full h-full resize-none bg-transparent border-0 focus:outline-none focus:ring-0 text-stone-800 placeholder:text-stone-400 text-[15px] sm:text-[16px] leading-[1.65] font-normal"
               />
             </div>
+
+            {/* Listening indicator */}
+            {isListening && (
+              <div className="mb-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-xs text-amber-900 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                <span>Listening... Speak your trip destination, days &amp; interests</span>
+              </div>
+            )}
 
             {/* Attached file chip if uploaded */}
             {attachment && (
@@ -89,27 +159,47 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               </div>
             )}
 
-            {/* Card Bottom Bar matching reference image */}
+            {/* Card Bottom Bar */}
             <div className="pt-2 sm:pt-3 flex items-center justify-between border-t border-stone-200/50">
-              {/* Left: Upload Icon Button */}
-              <div className="flex items-center gap-2">
+              {/* Left Action Buttons: Upload & Voice Mic */}
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Upload Button */}
                 <button
                   type="button"
                   onClick={onOpenAttachmentModal}
-                  title="Upload flight tickets, hotel reservations or inspiration image"
+                  title="Upload flight tickets, hotel reservations or inspiration document"
                   className="p-2.5 sm:p-3 text-stone-700 hover:text-black hover:bg-stone-200/50 rounded-full transition-colors cursor-pointer focus:outline-none"
                   aria-label="Upload attachments"
                 >
                   <Upload className="w-5 h-5 stroke-[2]" />
                 </button>
 
+                {/* Voice Input Microphone Button */}
+                <button
+                  type="button"
+                  onClick={handleToggleVoice}
+                  title={isListening ? "Stop listening" : "Speak your trip plan by voice"}
+                  className={`p-2.5 sm:p-3 rounded-full transition-all cursor-pointer focus:outline-none ${
+                    isListening 
+                      ? 'bg-amber-500 text-stone-950 shadow-md ring-2 ring-amber-400 animate-pulse' 
+                      : 'text-stone-700 hover:text-black hover:bg-stone-200/50'
+                  }`}
+                  aria-label="Voice command trip planner"
+                >
+                  {isListening ? <MicOff className="w-5 h-5 stroke-[2]" /> : <Mic className="w-5 h-5 stroke-[2]" />}
+                </button>
+
                 {attachment ? (
-                  <span className="text-[11px] text-emerald-700 font-medium hidden sm:inline">
-                    File attached
+                  <span className="text-[11px] text-emerald-700 font-medium hidden sm:inline ml-1">
+                    Ticket attached ✓
+                  </span>
+                ) : isListening ? (
+                  <span className="text-[11px] text-amber-700 font-semibold hidden sm:inline ml-1">
+                    Listening...
                   </span>
                 ) : (
-                  <span className="text-[11px] text-stone-500 hidden sm:inline">
-                    Attach notes or tickets
+                  <span className="text-[11px] text-stone-500 hidden sm:inline ml-1">
+                    Attach ticket or speak
                   </span>
                 )}
               </div>

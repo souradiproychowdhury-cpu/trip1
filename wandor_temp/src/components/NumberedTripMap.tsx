@@ -126,19 +126,44 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
   const [isDownloading, setIsDownloading] = useState<boolean>(false);
   const [downloadSuccess, setDownloadSuccess] = useState<boolean>(false);
 
-  // Map Mode: 'google' (Google Maps JS API), 'google-embed' (Google Maps Embed), 'leaflet' (OpenStreetMap)
-  const [mapMode, setMapMode] = useState<'google' | 'google-embed' | 'leaflet'>('google');
-  const [googleMapTypeId, setGoogleMapTypeId] = useState<'roadmap' | 'satellite' | 'hybrid' | 'terrain'>('roadmap');
-
-  // Google Maps API Key state
+  // Google Maps API Key state: automatically integrated via environment (.env) or backend config
   const envGoogleKey = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '';
   const [googleMapsKey, setGoogleMapsKey] = useState<string>(() => {
-    return localStorage.getItem('wandor_google_maps_key') || envGoogleKey || '';
+    return envGoogleKey || (typeof window !== 'undefined' ? localStorage.getItem('wandor_google_maps_key') || '' : '');
   });
-  const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(false);
-  const [tempKeyInput, setTempKeyInput] = useState<string>('');
+
+  // Map Mode:
+  // If a Google Maps API Key is configured in code/.env, default to 'google'.
+  // Otherwise, default immediately to 'leaflet' so an interactive map with numbered stops opens automatically with ZERO user prompts!
+  const [mapMode, setMapMode] = useState<'google' | 'google-embed' | 'leaflet'>(() => {
+    const key = envGoogleKey || (typeof window !== 'undefined' ? localStorage.getItem('wandor_google_maps_key') : '');
+    return key ? 'google' : 'leaflet';
+  });
+  const [googleMapTypeId, setGoogleMapTypeId] = useState<'roadmap' | 'satellite' | 'hybrid' | 'terrain'>('roadmap');
+
   const [isGoogleMapsReady, setIsGoogleMapsReady] = useState<boolean>(false);
   const [googleMapsError, setGoogleMapsError] = useState<string | null>(null);
+
+  // Auto-fetch server-configured Google Maps key or local storage key
+  useEffect(() => {
+    if (!googleMapsKey) {
+      const localKey = typeof window !== 'undefined' ? localStorage.getItem('wandor_google_maps_key') : '';
+      if (localKey) {
+        setGoogleMapsKey(localKey);
+        setMapMode('google');
+        return;
+      }
+      fetch('/api/config/maps-key')
+        .then(res => res.json())
+        .then(data => {
+          if (data?.key) {
+            setGoogleMapsKey(data.key);
+            setMapMode('google');
+          }
+        })
+        .catch(() => {});
+    }
+  }, [googleMapsKey]);
 
   // DOM Refs
   const googleMapContainerRef = useRef<HTMLDivElement>(null);
@@ -234,8 +259,8 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
     };
     script.onerror = () => {
       setIsGoogleMapsReady(false);
-      setGoogleMapsError('Failed to load Google Maps script with provided API key. Falling back to embedded view.');
-      setMapMode('google-embed');
+      setGoogleMapsError('Google Maps failed to load. Automatically falling back to interactive map.');
+      setMapMode('leaflet');
     };
 
     document.head.appendChild(script);
@@ -511,16 +536,6 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
     window.open(googleMapsDirectionsUrl, '_blank', 'noopener,noreferrer');
   };
 
-  // Save user Google Maps API key
-  const handleSaveGoogleKey = () => {
-    const cleanKey = tempKeyInput.trim();
-    localStorage.setItem('wandor_google_maps_key', cleanKey);
-    setGoogleMapsKey(cleanKey);
-    setIsKeyModalOpen(false);
-    if (cleanKey) {
-      setMapMode('google');
-    }
-  };
 
   // Generate downloadable High-Res Route Poster Map Image (Canvas PNG)
   const handleDownloadMapImage = () => {
@@ -684,22 +699,16 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
             Open Route in Google Maps App
           </button>
 
-          {/* Google Maps API Key Config */}
-          <button
-            onClick={() => {
-              setTempKeyInput(googleMapsKey);
-              setIsKeyModalOpen(true);
-            }}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold uppercase tracking-wider transition-all border cursor-pointer ${
-              googleMapsKey
-                ? 'bg-emerald-950/50 text-emerald-300 border-emerald-700/60 hover:bg-emerald-900/60'
-                : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
-            }`}
-            title="Configure or test your Google Maps API Key"
-          >
-            <Key className="w-3.5 h-3.5" />
-            {googleMapsKey ? 'Google Maps API: Active' : 'Set Google Maps API Key'}
-          </button>
+          {/* Google Maps Status Indicator */}
+          {googleMapsKey && (
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-emerald-950/50 text-emerald-300 border border-emerald-700/60 text-xs font-semibold uppercase tracking-wider"
+              title="Real Google Maps API is active"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Google Maps API Active
+            </div>
+          )}
 
           {/* Download & Print */}
           <button
@@ -726,11 +735,10 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-stone-200/80 shadow-xs">
           <button
             onClick={() => {
-              if (!googleMapsKey) {
-                setTempKeyInput('');
-                setIsKeyModalOpen(true);
-              } else {
+              if (googleMapsKey) {
                 setMapMode('google');
+              } else {
+                setMapMode('google-embed');
               }
             }}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
@@ -740,7 +748,7 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
             }`}
           >
             <Globe className="w-3.5 h-3.5" />
-            Real Google Maps (JS API)
+            Google Maps (Interactive)
             {googleMapsKey && <span className="w-2 h-2 rounded-full bg-emerald-500 ml-0.5" />}
           </button>
 
@@ -852,27 +860,17 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
                 <div ref={googleMapContainerRef} className="w-full h-full min-h-[440px] lg:min-h-[580px]" />
               ) : (
                 <div className="w-full h-full min-h-[440px] lg:min-h-[580px] flex flex-col items-center justify-center p-8 text-center bg-stone-50">
-                  <div className="p-4 bg-amber-100 text-amber-800 rounded-2xl mb-3 shadow-xs">
-                    <Key className="w-8 h-8 text-amber-600" />
-                  </div>
-                  <h4 className="text-base font-bold text-stone-900 mb-1">Enter Real Google Maps API Key</h4>
+                  <div className="w-9 h-9 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mb-3" />
+                  <h4 className="text-base font-bold text-stone-900 mb-1">Loading Google Maps...</h4>
                   <p className="text-xs text-stone-500 max-w-sm mb-4">
-                    To render interactive Google Maps with custom numbered pins and live satellite views, please enter your Google Maps JavaScript API key.
+                    Connecting to Google Maps services to display your numbered journey.
                   </p>
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <button
-                      onClick={() => setIsKeyModalOpen(true)}
-                      className="px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold uppercase tracking-wider cursor-pointer shadow-xs"
-                    >
-                      Enter Google Maps API Key
-                    </button>
-                    <button
-                      onClick={() => setMapMode('google-embed')}
-                      className="px-4 py-2 rounded-full bg-white hover:bg-stone-100 text-stone-700 text-xs font-semibold border border-stone-200 cursor-pointer"
-                    >
-                      Use Zero-Key Google Maps Embed
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setMapMode('leaflet')}
+                    className="px-4 py-2 rounded-full bg-stone-200 hover:bg-stone-300 text-stone-800 text-xs font-semibold cursor-pointer transition-all"
+                  >
+                    View Interactive Route Map
+                  </button>
                 </div>
               )}
             </div>
@@ -1043,64 +1041,7 @@ export const NumberedTripMap: React.FC<NumberedTripMapProps> = ({ itinerary, onS
         </div>
       )}
 
-      {/* Google Maps API Key Modal */}
-      {isKeyModalOpen && (
-        <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-stone-200 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200">
-              <div className="flex items-center gap-2">
-                <Key className="w-5 h-5 text-amber-600" />
-                <h3 className="font-bold text-stone-900 text-base">Google Maps API Key</h3>
-              </div>
-              <button
-                onClick={() => setIsKeyModalOpen(false)}
-                className="text-stone-400 hover:text-stone-700 font-bold p-1 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
 
-            <p className="text-xs text-stone-600 mt-3 leading-relaxed">
-              Add your Google Maps JavaScript API key to load genuine Google Maps imagery, satellite views, and authentic numbered pin markers.
-            </p>
-
-            <div className="mt-4">
-              <label className="block text-xs font-semibold text-stone-700 mb-1">
-                Google Maps API Key:
-              </label>
-              <input
-                type="text"
-                value={tempKeyInput}
-                onChange={(e) => setTempKeyInput(e.target.value)}
-                placeholder="AIzaSy..."
-                className="w-full px-3.5 py-2 text-xs border border-stone-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500 font-mono"
-              />
-            </div>
-
-            {googleMapsError && (
-              <div className="mt-3 p-2.5 rounded-xl bg-red-50 text-red-700 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{googleMapsError}</span>
-              </div>
-            )}
-
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setIsKeyModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveGoogleKey}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer shadow-xs"
-              >
-                Save &amp; Activate Google Maps
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

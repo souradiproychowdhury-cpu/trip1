@@ -9,8 +9,10 @@ import cookieParser from "cookie-parser";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 
-import { generateItinerary, refineItinerary, getConfiguredProviderNames, getActiveProviders, translateItinerary } from "./server/ai/router";
+import { generateItinerary, refineItinerary, getConfiguredProviderNames, getActiveProviders, getProviders, translateItinerary } from "./server/ai/router";
 import { extractTextFromAttachment } from "./server/ai/extractText";
+import { generateCompleteTransitRoutes } from "./server/ai/transitService";
+import { generateHotelSuggestions } from "./server/ai/hotelService";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -40,7 +42,15 @@ app.use((req, res, next) => {
 
 // URL prefix normalizer for Vercel serverless rewrites
 app.use((req, res, next) => {
-  if (!req.url.startsWith('/api') && req.url !== '/' && !req.url.startsWith('/assets')) {
+  if (
+    process.env.VERCEL &&
+    !req.url.startsWith('/api') &&
+    req.url !== '/' &&
+    !req.url.startsWith('/assets') &&
+    !req.url.startsWith('/src') &&
+    !req.url.startsWith('/@') &&
+    !req.url.startsWith('/node_modules')
+  ) {
     req.url = '/api' + req.url;
   }
   next();
@@ -90,6 +100,25 @@ const generalApiLimiter = rateLimit({
 app.use(authenticateToken);
 app.use('/api/', generalApiLimiter);
 app.use('/api/auth/', apiLimiter);
+
+// Public Config & Diagnostics Endpoints
+app.get(["/api", "/api/health", "/health"], (req, res) => {
+  res.json({
+    status: "ok",
+    app: "Wandor AI Trip Planner API",
+    configuredProviders: getConfiguredProviderNames(),
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    hasGoogleMapsKey: Boolean(process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY),
+    hasFlightKey: Boolean(process.env.AVIATIONSTACK_API_KEY || process.env.FLIGHT_TIMING_API_KEY),
+    hasTrainKey: Boolean(process.env.TRAIN_TIMING_API_KEY || process.env.RAIL_API_KEY),
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get(["/api/config/maps-key", "/config/maps-key"], (req, res) => {
+  const key = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
+  res.json({ key });
+});
 
 // Auth Endpoints
 app.post("/api/auth/register", async (req, res) => {
@@ -670,6 +699,30 @@ app.get(["/api/exchange-rates", "/exchange-rates"], async (req, res) => {
   return res.json({ success: true, base: "USD", rates: DEFAULT_EXCHANGE_RATES });
 });
 
+// Attachment Extraction & Ticket Analysis Endpoint (Gemini Multimodal / OCR)
+app.post(["/api/extract-attachment", "/extract-attachment"], upload.single('file'), async (req: any, res: any) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file was uploaded." });
+    }
+
+    const clientKey = (req.headers['x-gemini-key'] as string) || (req.body && req.body.geminiKey);
+    const providers = getProviders(clientKey);
+    const gemini = providers.gemini;
+
+    const extracted = await extractTextFromAttachment(
+      req.file.buffer,
+      req.file.mimetype,
+      gemini && gemini.isConfigured() ? gemini : undefined
+    );
+
+    return res.json({ success: true, text: extracted });
+  } catch (err: any) {
+    console.error("Attachment analysis failed:", err);
+    return res.status(500).json({ error: err.message || "Failed to analyze document." });
+  }
+});
+
 // Primary Endpoint: Plan Trip
 app.post(["/api/plan-trip", "/plan-trip"], aiLimiter, async (req, res) => {
   const { prompt, attachmentSummary, geminiKey } = req.body;
@@ -683,6 +736,25 @@ app.post(["/api/plan-trip", "/plan-trip"], aiLimiter, async (req, res) => {
   try {
     const itinerary = await generateItinerary(prompt, attachmentSummary, clientKey);
     itinerary.id = `trip-${Date.now()}`;
+
+    // Auto-generate flight and train timings using Aviationstack and Train timing APIs
+    try {
+      const originMatch = prompt.match(/(?:from|departing|flying from|leaving|origin)\s+([A-Za-z\s]+?)(?:\s+to|\s+in|\s+for|\.|\,|$)/i);
+      const originCity = itinerary.origin || (originMatch ? originMatch[1].trim() : 'Your departure city');
+      itinerary.origin = originCity;
+      const transitRoutes = await generateCompleteTransitRoutes(originCity, itinerary.destination);
+      itinerary.transitRoutes = transitRoutes;
+    } catch (transitErr: any) {
+      console.warn("[Transit] Route generation notice:", transitErr.message);
+    }
+
+    // Auto-suggest hotel accommodations using Travel Partner / Hotel API
+    try {
+      const hotels = await generateHotelSuggestions(itinerary.destination, prompt);
+      itinerary.hotels = hotels;
+    } catch (hotelErr: any) {
+      console.warn("[Hotels] Hotel suggestions notice:", hotelErr.message);
+    }
 
     // Save to database if user is logged in
     if (user && prisma) {
@@ -704,6 +776,29 @@ app.post(["/api/plan-trip", "/plan-trip"], aiLimiter, async (req, res) => {
   } catch (err: any) {
     console.error("Itinerary generation failed:", err.message);
     return res.status(500).json({ error: err.message || "Failed to generate itinerary with AI." });
+  }
+});
+
+// Dedicated Hotel Suggestions Endpoint (Travel Partner & Google Hotels API)
+app.get(["/api/hotels", "/hotels"], async (req, res) => {
+  const destination = (req.query.destination as string) || (req.query.q as string) || 'Destination';
+  try {
+    const hotels = await generateHotelSuggestions(destination);
+    return res.json({ success: true, hotels });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Failed to fetch hotel suggestions" });
+  }
+});
+
+// Dedicated Transit Routes Endpoint (Flights & Train Timings)
+app.get(["/api/transit-routes", "/transit-routes"], async (req, res) => {
+  const destination = (req.query.destination as string) || 'Destination';
+  const origin = (req.query.origin as string) || 'Your departure city';
+  try {
+    const transitRoutes = await generateCompleteTransitRoutes(origin, destination);
+    return res.json({ success: true, transitRoutes });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Failed to fetch transit routes" });
   }
 });
 
@@ -954,6 +1049,7 @@ async function startServer() {
     console.log(`[ENV] GEMINI_API_KEY: ${process.env.GEMINI_API_KEY ? 'SET ✓' : 'NOT SET ✗'}`);
     console.log(`[ENV] OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'SET ✓' : 'NOT SET ✗'}`);
     console.log(`[ENV] ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'SET ✓' : 'NOT SET ✗'}`);
+    console.log(`[ENV] GOOGLE_MAPS_API_KEY: ${process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY ? 'SET ✓' : 'NOT SET ✗'}`);
     console.log(`[AI] Configured providers: ${getConfiguredProviderNames().join(', ') || 'NONE'}`);
   });
 }

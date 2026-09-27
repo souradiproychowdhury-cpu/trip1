@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plane, Train, Bus, Clock, Calendar, ArrowRight, DollarSign, Compass, Info, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plane, Train, Bus, Clock, Calendar, ArrowRight, DollarSign, Compass, Info, CheckCircle2, Loader2 } from 'lucide-react';
 import { TransitRoutesInfo } from '../types';
 
 interface TransitRoutesSectionProps {
@@ -14,13 +14,41 @@ export const TransitRoutesSection: React.FC<TransitRoutesSectionProps> = ({
   origin
 }) => {
   const [activeTab, setActiveTab] = useState<'flights' | 'trains' | 'buses'>('flights');
+  const [liveTransit, setLiveTransit] = useState<TransitRoutesInfo | undefined>(transitRoutes);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  if (!transitRoutes && !origin) return null;
+  useEffect(() => {
+    if (transitRoutes && ((transitRoutes.flights && transitRoutes.flights.length > 0) || (transitRoutes.trains && transitRoutes.trains.length > 0))) {
+      setLiveTransit(transitRoutes);
+      return;
+    }
 
-  const startingPoint = origin || transitRoutes?.origin || 'Your starting city';
-  const flights = transitRoutes?.flights || [];
-  const trains = transitRoutes?.trains || [];
-  const buses = transitRoutes?.buses || [];
+    let isMounted = true;
+    const fetchLiveRoutes = async () => {
+      setIsLoading(true);
+      try {
+        const queryOrigin = origin || 'Your departure city';
+        const res = await fetch(`/api/transit-routes?destination=${encodeURIComponent(destination)}&origin=${encodeURIComponent(queryOrigin)}`);
+        const data = await res.json();
+        if (data.success && data.transitRoutes && isMounted) {
+          setLiveTransit(data.transitRoutes);
+        }
+      } catch (err) {
+        console.warn('Could not fetch transit routes:', err);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    fetchLiveRoutes();
+    return () => { isMounted = false; };
+  }, [transitRoutes, destination, origin]);
+
+  const activeRoutes = liveTransit || transitRoutes;
+  const startingPoint = origin || activeRoutes?.origin || 'Your starting city';
+  const flights = activeRoutes?.flights || [];
+  const trains = activeRoutes?.trains || [];
+  const buses = activeRoutes?.buses || [];
 
   return (
     <section className="mt-8 rounded-[24px] bg-white/80 backdrop-blur-xs border border-stone-200/90 p-6 sm:p-7 shadow-xs">

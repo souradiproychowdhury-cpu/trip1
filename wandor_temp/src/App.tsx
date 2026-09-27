@@ -17,9 +17,7 @@ import { useEffect } from 'react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'hero' | 'discover' | 'pricing' | 'faqs' | 'itinerary' | 'my-trips'>('hero');
-  const [prompt, setPrompt] = useState<string>(
-    "I'm planning a 7-day trip to Japan in October. I love food, hidden cafés, scenic hikes, and want to avoid crowds...."
-  );
+  const [prompt, setPrompt] = useState<string>('');
   const [itinerary, setItinerary] = useState<TripItinerary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isRefining, setIsRefining] = useState<boolean>(false);
@@ -29,6 +27,49 @@ export default function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Welcome voice greeting when the app opens: "Welcome! Plan a trip and enjoy the trip."
+  useEffect(() => {
+    const hasWelcomed = sessionStorage.getItem('wandor_welcomed_tts');
+    if (!hasWelcomed && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const speakWelcome = () => {
+        try {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance("Welcome! Plan a trip and enjoy the trip.");
+          utterance.rate = 0.95;
+          utterance.pitch = 1.05;
+          utterance.lang = 'en-US';
+          window.speechSynthesis.speak(utterance);
+          sessionStorage.setItem('wandor_welcomed_tts', 'true');
+        } catch (e) {
+          console.warn("Welcome TTS error:", e);
+        }
+      };
+
+      // Play shortly after load
+      const timer = setTimeout(() => {
+        speakWelcome();
+      }, 600);
+
+      // Play on first user interaction if browser policy blocked autoplay
+      const onFirstTouch = () => {
+        if (!sessionStorage.getItem('wandor_welcomed_tts')) {
+          speakWelcome();
+        }
+        window.removeEventListener('click', onFirstTouch);
+        window.removeEventListener('keydown', onFirstTouch);
+      };
+
+      window.addEventListener('click', onFirstTouch, { once: true });
+      window.addEventListener('keydown', onFirstTouch, { once: true });
+
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('click', onFirstTouch);
+        window.removeEventListener('keydown', onFirstTouch);
+      };
+    }
+  }, []);
 
   useEffect(() => {
     const fetchUser = async () => {
