@@ -206,8 +206,28 @@ app.post("/api/auth/login", async (req, res) => {
       }
     }
 
-    // Fallback: allow demo sign-in or create account on the fly if not existing
-    return res.status(400).json({ error: "Invalid email or password" });
+    // Fallback: auto-register new user so login is seamless across any device
+    const newPasswordHash = await bcrypt.hash(password, 10);
+    const newUserId = `user-${Date.now()}`;
+    const newUser = { id: newUserId, email: cleanEmail, passwordHash: newPasswordHash };
+    memoryUsers.set(cleanEmail, newUser);
+
+    if (prisma) {
+      try {
+        const created = await prisma.user.create({
+          data: { email: cleanEmail, passwordHash: newPasswordHash }
+        });
+        const token = jwt.sign({ id: created.id, email: created.email }, JWT_SECRET, { expiresIn: '7d' });
+        res.cookie('jwt', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+        return res.json({ success: true, user: { id: created.id, email: created.email } });
+      } catch (err: any) {
+        console.warn("[Auth] Prisma auto-create fallback:", err.message);
+      }
+    }
+
+    const token = jwt.sign({ id: newUserId, email: cleanEmail }, JWT_SECRET, { expiresIn: '7d' });
+    res.cookie('jwt', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+    return res.json({ success: true, user: { id: newUserId, email: cleanEmail } });
   } catch (error: any) {
     console.error("Login error:", error);
     return res.status(500).json({ error: "Server error during login" });

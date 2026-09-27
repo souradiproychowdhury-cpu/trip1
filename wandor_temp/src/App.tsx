@@ -238,7 +238,7 @@ export default function App() {
 
   return (
     <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID || "mock-client-id"}>
-      <div className="min-h-screen flex flex-col bg-stone-950/15 text-stone-900 relative font-body selection:bg-[#E2D4C3]">
+      <div className="min-h-screen flex flex-col bg-black/30 text-stone-900 relative font-body selection:bg-[#E2D4C3]">
       <ScrollBackground />
       {/* Toast Notification */}
       {toastMessage && (
