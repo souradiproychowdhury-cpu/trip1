@@ -17,7 +17,7 @@ import { generateHotelSuggestions } from "./server/ai/hotelService";
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const JWT_SECRET = process.env.JWT_SECRET || "WandOr-Secret-key";
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "mock-client-id";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "548580778222-b1921msglachn1acdoc7ib2bg4v26ct2.apps.googleusercontent.com";
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 let prisma: any = null;
