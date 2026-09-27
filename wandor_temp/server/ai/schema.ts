@@ -112,6 +112,12 @@ CRITICAL GUIDELINES:
     3) "perPersonTotal": { "low": ..., "high": ... } Estimated cost for ONE individual person for the entire trip duration.
     4) "perPersonPerDay": { "low": ..., "high": ... } Estimated cost per person per day.
     5) "breakdown": Group breakdown for flights, accommodation, food, activities, local transport, miscBuffer.
+- DURATION & FULL MULTI-DAY ITINERARY (MANDATORY):
+  * When a duration or number of days is requested (e.g. 2 days, 3 days, 4 days, 5 days, or '৩ দিনের', '২ দিন', '3 days trip'):
+  * You MUST generate the complete itinerary with an entry for EVERY single day in the "days" array!
+  * If 3 days are requested, the "days" array MUST have exactly 3 day objects: Day 1, Day 2, and Day 3.
+  * If 2 days are requested, the "days" array MUST have exactly 2 day objects: Day 1 and Day 2.
+  * NEVER generate only 1 day when the user asks for a multi-day trip!
 - Do NOT include transit routes, flights, trains, or bus travel suggestions in the daily activities. Focus 100% on the destination experience, neighborhood culture, and daily activities.
 - Keep every description concise, evocative, and punchy (1-2 sentences per item) for fast delivery.
 - Prioritize peaceful early morning visits to landmarks before crowds arrive.

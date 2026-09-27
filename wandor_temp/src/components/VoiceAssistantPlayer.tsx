@@ -127,18 +127,37 @@ export const VoiceAssistantPlayer: React.FC<VoiceGuideProps> = ({
   // Auto-play immediately when itinerary view opens
   useEffect(() => {
     if (!autoPlay || !defaultText || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    if (hasAutoPlayedRef.current) return;
 
-    hasAutoPlayedRef.current = true;
     const detected = detectLanguageOption(defaultText, initialLanguage);
     setSelectedLang(detected);
 
-    // Give browser audio context 250ms to settle after tab transition
-    const timer = setTimeout(() => {
+    let hasTriggered = false;
+    const triggerSpeech = () => {
+      if (hasTriggered) return;
+      hasTriggered = true;
       playSpeech(defaultText, detected.speechLang);
-    }, 250);
+    };
 
-    return () => clearTimeout(timer);
+    // 1. Try immediate auto-play after short delay
+    const timer = setTimeout(triggerSpeech, 250);
+
+    // 2. Unblock listeners: If browser autoplay policy held speech in pending, the slightest mouse move, scroll, or touch immediately activates it
+    const cleanupListeners = () => {
+      window.removeEventListener('pointermove', triggerSpeech);
+      window.removeEventListener('pointerdown', triggerSpeech);
+      window.removeEventListener('scroll', triggerSpeech);
+      window.removeEventListener('touchstart', triggerSpeech);
+    };
+
+    window.addEventListener('pointermove', triggerSpeech, { once: true, passive: true });
+    window.addEventListener('pointerdown', triggerSpeech, { once: true, passive: true });
+    window.addEventListener('scroll', triggerSpeech, { once: true, passive: true });
+    window.addEventListener('touchstart', triggerSpeech, { once: true, passive: true });
+
+    return () => {
+      clearTimeout(timer);
+      cleanupListeners();
+    };
   }, [autoPlay, defaultText, initialLanguage]);
 
   // Clean up speech when component unmounts
@@ -161,45 +180,55 @@ export const VoiceAssistantPlayer: React.FC<VoiceGuideProps> = ({
       utterance.lang = langCode;
       utterance.rate = playbackRate;
 
-      // Pick best matching voice
-      const voices = window.speechSynthesis.getVoices();
-      const cleanLang = langCode.toLowerCase().replace('_', '-');
-      const baseCode = cleanLang.split('-')[0];
+      const executeSpeak = () => {
+        const voices = window.speechSynthesis.getVoices();
+        const cleanLang = langCode.toLowerCase().replace('_', '-');
+        const baseCode = cleanLang.split('-')[0];
 
-      let matchedVoice = voices.find(v => v.lang.toLowerCase().replace('_', '-') === cleanLang);
-      if (!matchedVoice) {
-        matchedVoice = voices.find(v => v.lang.toLowerCase().replace('_', '-').startsWith(baseCode));
-      }
-      if (!matchedVoice) {
-        const langOpt = SUPPORTED_LANGUAGES.find(l => l.speechLang === langCode);
-        if (langOpt) {
-          matchedVoice = voices.find(v =>
-            v.name.toLowerCase().includes(langOpt.name.toLowerCase()) ||
-            v.name.toLowerCase().includes(langOpt.nativeName.toLowerCase())
-          );
+        let matchedVoice = voices.find(v => v.lang.toLowerCase().replace('_', '-') === cleanLang);
+        if (!matchedVoice) {
+          matchedVoice = voices.find(v => v.lang.toLowerCase().replace('_', '-').startsWith(baseCode));
         }
+        if (!matchedVoice) {
+          const langOpt = SUPPORTED_LANGUAGES.find(l => l.speechLang === langCode);
+          if (langOpt) {
+            matchedVoice = voices.find(v =>
+              v.name.toLowerCase().includes(langOpt.name.toLowerCase()) ||
+              v.name.toLowerCase().includes(langOpt.nativeName.toLowerCase())
+            );
+          }
+        }
+
+        if (matchedVoice) {
+          utterance.voice = matchedVoice;
+        }
+
+        utterance.onstart = () => {
+          setIsPlaying(true);
+          setIsPaused(false);
+        };
+        utterance.onend = () => {
+          setIsPlaying(false);
+          setIsPaused(false);
+        };
+        utterance.onerror = (e) => {
+          console.warn('SpeechSynthesis error:', e);
+          setIsPlaying(false);
+          setIsPaused(false);
+        };
+
+        utteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
+        window.speechSynthesis.resume();
+      };
+
+      if (window.speechSynthesis.getVoices().length > 0) {
+        executeSpeak();
+      } else {
+        window.speechSynthesis.onvoiceschanged = () => {
+          executeSpeak();
+        };
       }
-
-      if (matchedVoice) {
-        utterance.voice = matchedVoice;
-      }
-
-      utterance.onstart = () => {
-        setIsPlaying(true);
-        setIsPaused(false);
-      };
-      utterance.onend = () => {
-        setIsPlaying(false);
-        setIsPaused(false);
-      };
-      utterance.onerror = (e) => {
-        console.warn('SpeechSynthesis error:', e);
-        setIsPlaying(false);
-        setIsPaused(false);
-      };
-
-      utteranceRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.warn('playSpeech failed:', err);
       setIsPlaying(false);

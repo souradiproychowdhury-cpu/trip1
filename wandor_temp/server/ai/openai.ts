@@ -3,6 +3,8 @@ import { AIProvider } from './types';
 import { TripItinerary } from '../../src/types';
 import { SYSTEM_INSTRUCTION } from './schema';
 
+import { extractRequestedDays } from './gemini';
+
 export class OpenAIProvider implements AIProvider {
   name = 'openai';
   private client: OpenAI | null = null;
@@ -27,7 +29,12 @@ export class OpenAIProvider implements AIProvider {
   ): Promise<TripItinerary> {
     if (!this.client) throw new Error('OpenAI not configured');
 
+    const requestedDays = extractRequestedDays(prompt);
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
+    userMessage += `\n\nCRITICAL DURATION & DAY COUNT:
+- The traveler explicitly wants a ${requestedDays}-day trip ("duration": "${requestedDays} Days").
+- You MUST generate EXACTLY ${requestedDays} distinct day objects in the "days" array: Day 1, Day 2${requestedDays >= 3 ? `, ... up to Day ${requestedDays}` : ''}.
+- The "days" array MUST contain exactly ${requestedDays} items (length ${requestedDays}). NEVER output only 1 day when the prompt requests ${requestedDays} days!`;
     userMessage += `\n\nLANGUAGE & VOICE INTRO REQUIREMENT:
 - Detect the language of the traveler's prompt. If the prompt is written in Bengali / বাংলা, Hindi / हिन्दी, Urdu / اردو, Spanish, etc., you MUST write the entire itinerary ("destinationIntro", "summary", "title", themes, activity descriptions, hidden gems) naturally and beautifully in that exact language.
 - "destinationIntro": You MUST include an evocative, atmospheric 2 to 3 line description introducing this destination in the user's language. This will be spoken aloud to the traveler automatically.

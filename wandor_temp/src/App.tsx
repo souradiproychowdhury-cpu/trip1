@@ -149,6 +149,16 @@ export default function App() {
 
   const handlePlanTrip = async () => {
     if (!prompt.trim()) return;
+
+    // Prime speech synthesis within active user gesture
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.resume();
+      try {
+        const prime = new SpeechSynthesisUtterance('');
+        window.speechSynthesis.speak(prime);
+      } catch {}
+    }
+
     setIsLoading(true);
 
     try {
@@ -201,6 +211,16 @@ export default function App() {
     // Trigger plan with the new prompt string directly
     const currentPrompt = trip.promptText;
     if (!currentPrompt.trim()) return;
+
+    // Prime speech synthesis within active user gesture
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.resume();
+      try {
+        const prime = new SpeechSynthesisUtterance('');
+        window.speechSynthesis.speak(prime);
+      } catch {}
+    }
+
     setIsLoading(true);
     
     const geminiKey = localStorage.getItem('wandor_gemini_key');

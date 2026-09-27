@@ -5,13 +5,70 @@ import { SYSTEM_INSTRUCTION } from './schema';
 
 function parseJsonSafely(text: string): any {
   let clean = text.trim();
-  // Strip Markdown code blocks if present
-  if (clean.startsWith('```json')) {
-    clean = clean.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
-  } else if (clean.startsWith('```')) {
-    clean = clean.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  const firstBrace = clean.indexOf('{');
+  if (firstBrace === -1) {
+    return JSON.parse(clean);
   }
+
+  let inString = false;
+  let escape = false;
+  let depth = 0;
+  let endBrace = -1;
+
+  for (let i = firstBrace; i < clean.length; i++) {
+    const ch = clean[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === '{') {
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          endBrace = i;
+          break;
+        }
+      }
+    }
+  }
+
+  if (endBrace !== -1) {
+    clean = clean.substring(firstBrace, endBrace + 1);
+  } else {
+    const lastBrace = clean.lastIndexOf('}');
+    if (lastBrace > firstBrace) {
+      clean = clean.substring(firstBrace, lastBrace + 1);
+    }
+  }
+
   return JSON.parse(clean.trim());
+}
+
+export function extractRequestedDays(promptText: string): number {
+  const bengaliNums: Record<string, number> = { '১': 1, '২': 2, '৩': 3, '৪': 4, '৫': 5, '৬': 6, '৭': 7 };
+  const bnMatch = promptText.match(/([১-৭]|\d+)\s*(?:দিনের|দিন|days?|day)/i);
+  if (bnMatch) {
+    const raw = bnMatch[1];
+    if (bengaliNums[raw]) return bengaliNums[raw];
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n > 0 && n <= 14) return n;
+  }
+  const match = promptText.match(/(\d+)\s*(?:days?|day|nights?|night)/i);
+  if (match) {
+    const n = parseInt(match[1], 10);
+    if (!isNaN(n) && n > 0 && n <= 14) return n;
+  }
+  return 3;
 }
 
 export class GeminiProvider implements AIProvider {
@@ -68,7 +125,13 @@ export class GeminiProvider implements AIProvider {
     retryError?: string,
     options?: { travelersCount?: number; language?: string }
   ): Promise<TripItinerary> {
+    const requestedDays = extractRequestedDays(prompt);
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
+    userMessage += `\n\nCRITICAL DURATION & DAY COUNT:
+- The traveler explicitly wants a ${requestedDays}-day trip ("duration": "${requestedDays} Days").
+- You MUST generate EXACTLY ${requestedDays} distinct day objects in the "days" array: Day 1, Day 2${requestedDays >= 3 ? `, ... up to Day ${requestedDays}` : ''}.
+- The "days" array MUST contain exactly ${requestedDays} items (length ${requestedDays}). NEVER output only 1 day when the prompt requests ${requestedDays} days!`;
+
     userMessage += `\n\nLANGUAGE & VOICE INTRO REQUIREMENT:
 - Detect the language of the traveler's prompt. If the prompt is written in Bengali / বাংলা, Hindi / हिन्दी, Urdu / اردو, Spanish, etc., you MUST write the entire itinerary ("destinationIntro", "summary", "title", themes, activity descriptions, hidden gems) naturally and beautifully in that exact language.
 - "destinationIntro": You MUST include an evocative, atmospheric 2 to 3 line description introducing this destination in the user's language. This will be spoken aloud to the traveler automatically.
@@ -91,7 +154,7 @@ export class GeminiProvider implements AIProvider {
       systemInstruction: SYSTEM_INSTRUCTION,
       responseMimeType: 'application/json',
       temperature: 0.2,
-      maxOutputTokens: 3500,
+      maxOutputTokens: 8192,
     });
 
     const parsed = parseJsonSafely(responseText);

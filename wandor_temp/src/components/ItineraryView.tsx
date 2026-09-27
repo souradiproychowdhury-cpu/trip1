@@ -371,13 +371,6 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
             </p>
           </div>
 
-          <VoiceAssistantPlayer
-            autoPlay={true}
-            placeName={currentItinerary.destination}
-            destination={currentItinerary.destination}
-            defaultText={`Welcome to ${currentItinerary.destination}! ${currentItinerary.summary}`}
-            title="Instant Audio Tour Guide"
-          />
         </div>
       </div>
 
