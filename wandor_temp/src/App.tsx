@@ -4,7 +4,6 @@ import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
 import { ItineraryView } from './components/ItineraryView';
 import { DiscoverPage } from './components/DiscoverPage';
-import { PricingPage } from './components/PricingPage';
 import { FaqsPage } from './components/FaqsPage';
 import { AttachmentModal } from './components/AttachmentModal';
 import { AuthModal } from './components/AuthModal';
@@ -16,7 +15,7 @@ import { TripItinerary, DiscoverTrip } from './types';
 import { useEffect } from 'react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'hero' | 'discover' | 'pricing' | 'faqs' | 'itinerary' | 'my-trips'>('hero');
+  const [activeTab, setActiveTab] = useState<'hero' | 'discover' | 'faqs' | 'itinerary' | 'my-trips'>('hero');
   const [prompt, setPrompt] = useState<string>('');
   const [itinerary, setItinerary] = useState<TripItinerary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -218,11 +217,6 @@ export default function App() {
     showToast(`Welcome back, ${email.split('@')[0]}!`);
   };
 
-  const handleSelectPlan = (planId: string) => {
-    setIsAuthModalOpen(true);
-    showToast(`Selected ${planId.toUpperCase()} plan. Please sign in to activate.`);
-  };
-
   return (
     <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID || "mock-client-id"}>
       <div className="min-h-screen flex flex-col bg-black/30 text-stone-900 relative font-body selection:bg-[#E2D4C3]">
@@ -283,10 +277,6 @@ export default function App() {
           <DiscoverPage onSelectTrip={handleSelectDiscoverTrip} />
         )}
 
-        {activeTab === 'pricing' && (
-          <PricingPage onSelectPlan={handleSelectPlan} />
-        )}
-
         {activeTab === 'faqs' && (
           <FaqsPage onContactClick={() => setIsAuthModalOpen(true)} />
         )}
@@ -335,9 +325,6 @@ export default function App() {
         <div className="flex items-center gap-6 text-[11px] uppercase tracking-wider font-medium text-stone-600">
           <button onClick={() => setActiveTab('discover')} className="hover:text-black">
             Curated Routes
-          </button>
-          <button onClick={() => setActiveTab('pricing')} className="hover:text-black">
-            Pricing
           </button>
           <button onClick={() => setActiveTab('faqs')} className="hover:text-black">
             FAQs

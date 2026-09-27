@@ -422,63 +422,63 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
         </div>
       )}
 
-      {/* Main View Mode Tabs (Timeline vs Numbered Route Map) */}
-      <div className="mt-8 flex items-center justify-between flex-wrap gap-4 p-2 bg-stone-100/90 rounded-2xl border border-stone-200/80">
-        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+      {/* Main View Mode Tabs (Timeline vs Numbered Route Map vs Transit vs Hotels) */}
+      <div className="mt-8 flex items-center justify-between flex-wrap gap-3 p-1.5 sm:p-2 bg-stone-100/90 rounded-2xl border border-stone-200/80">
+        <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
           <button
             onClick={() => setActiveTab('itinerary')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'itinerary'
+            className={`shrink-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${activeTab === 'itinerary'
                 ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
                 : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
               }`}
           >
-            <ListOrdered className="w-4 h-4 text-amber-600" />
+            <ListOrdered className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600" />
             <span>Daily Itinerary</span>
           </button>
 
           <button
             onClick={() => setActiveTab('map')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'map'
+            className={`shrink-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${activeTab === 'map'
                 ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
                 : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
               }`}
           >
-            <MapIcon className="w-4 h-4 text-amber-600" />
+            <MapIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600" />
             <span className="flex items-center gap-1.5">
-              Numbered Trip Map
-              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-amber-100 text-amber-900 font-bold">
-                Downloadable
+              Trip Map
+              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-amber-100 text-amber-900 font-bold hidden xs:inline">
+                Poster
               </span>
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('transit')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'transit'
+            className={`shrink-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${activeTab === 'transit'
                 ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
                 : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
               }`}
           >
-            <Plane className="w-4 h-4 text-amber-600" />
+            <Plane className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600" />
             <span className="flex items-center gap-1.5">
               Flights &amp; Trains
-              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-emerald-100 text-emerald-900 font-bold">
-                Timings API
+              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-emerald-100 text-emerald-900 font-bold hidden xs:inline">
+                Live API
               </span>
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('hotels')}
-            className={`flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${activeTab === 'hotels'
+            className={`shrink-0 inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl text-[11px] sm:text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${activeTab === 'hotels'
                 ? 'bg-white text-stone-900 shadow-sm border border-stone-200/60'
                 : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
               }`}
           >
-            <Building2 className="w-4 h-4 text-amber-600" />
+            <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600" />
             <span className="flex items-center gap-1.5">
               Hotels &amp; Stays
-              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-amber-100 text-amber-900 font-bold">
+              <span className="px-1.5 py-0.5 text-[9px] rounded-full bg-amber-100 text-amber-900 font-bold hidden xs:inline">
                 Partner API
               </span>
             </span>

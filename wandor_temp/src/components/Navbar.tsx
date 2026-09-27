@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Menu, X, Compass, Sparkles, User, MapPin } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'hero' | 'discover' | 'pricing' | 'faqs' | 'itinerary' | 'my-trips';
-  onSelectTab: (tab: 'hero' | 'discover' | 'pricing' | 'faqs' | 'itinerary' | 'my-trips') => void;
+  activeTab: 'hero' | 'discover' | 'faqs' | 'itinerary' | 'my-trips';
+  onSelectTab: (tab: 'hero' | 'discover' | 'faqs' | 'itinerary' | 'my-trips') => void;
   onOpenLogin: () => void;
   onPlanTripClick: () => void;
   userEmail: string | null;
@@ -32,7 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="w-1.5 h-1.5 rounded-full bg-amber-700/70 inline-block translate-y-[-2px] opacity-0 group-hover:opacity-100 transition-opacity" />
         </button>
 
-        {/* Center Navigation Links: DISCOVER, PRICING, FAQS */}
+        {/* Center Navigation Links: DISCOVER, FAQS */}
         <nav className="hidden md:flex items-center gap-8 lg:gap-11">
           <button
             onClick={() => onSelectTab('discover')}
@@ -44,20 +44,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             DISCOVER
             {activeTab === 'discover' && (
-              <span className="absolute bottom-0 left-0 w-full h-[1.5px] bg-[#121212] rounded-full" />
-            )}
-          </button>
-
-          <button
-            onClick={() => onSelectTab('pricing')}
-            className={`text-[13px] font-medium tracking-[0.14em] uppercase transition-colors relative py-1 focus:outline-none ${
-              activeTab === 'pricing'
-                ? 'text-[#121212] font-semibold'
-                : 'text-stone-700 hover:text-black'
-            }`}
-          >
-            PRICING
-            {activeTab === 'pricing' && (
               <span className="absolute bottom-0 left-0 w-full h-[1.5px] bg-[#121212] rounded-full" />
             )}
           </button>
@@ -154,15 +140,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="text-left text-sm font-medium uppercase tracking-wider text-stone-800 py-1"
           >
             Discover
-          </button>
-          <button
-            onClick={() => {
-              onSelectTab('pricing');
-              setMobileMenuOpen(false);
-            }}
-            className="text-left text-sm font-medium uppercase tracking-wider text-stone-800 py-1"
-          >
-            Pricing
           </button>
           <button
             onClick={() => {
