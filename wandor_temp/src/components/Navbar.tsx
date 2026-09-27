@@ -7,6 +7,7 @@ interface NavbarProps {
   onOpenLogin: () => void;
   onPlanTripClick: () => void;
   onPlayWelcomeVoice?: () => void;
+  onLogout?: () => void;
   userEmail: string | null;
 }
 
@@ -16,6 +17,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenLogin,
   onPlanTripClick,
   onPlayWelcomeVoice,
+  onLogout,
   userEmail
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -102,9 +104,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               LOGIN
             </button>
           ) : (
-            <span className="text-[13px] font-medium tracking-[0.14em] uppercase text-stone-800 py-1">
-              {userEmail.split('@')[0]}
-            </span>
+            <div className="flex items-center gap-2.5">
+              <span className="text-[12px] font-semibold tracking-wider text-stone-800 bg-stone-200/80 px-3 py-1.5 rounded-full border border-stone-300">
+                {userEmail.split('@')[0]}
+              </span>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="text-[11px] text-stone-500 hover:text-black uppercase tracking-wider underline cursor-pointer"
+                >
+                  Logout
+                </button>
+              )}
+            </div>
           )}
 
           <button
@@ -173,15 +185,34 @@ export const Navbar: React.FC<NavbarProps> = ({
             FAQs
           </button>
           <div className="pt-2 border-t border-stone-200 flex flex-col gap-2">
-            <button
-              onClick={() => {
-                onOpenLogin();
-                setMobileMenuOpen(false);
-              }}
-              className="w-full text-center py-2 text-xs uppercase tracking-wider font-medium text-stone-800"
-            >
-              Log In
-            </button>
+            {!userEmail ? (
+              <button
+                onClick={() => {
+                  onOpenLogin();
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full text-center py-2 text-xs uppercase tracking-wider font-medium text-stone-800"
+              >
+                Log In
+              </button>
+            ) : (
+              <div className="flex items-center justify-between px-3 py-2 bg-stone-100 rounded-xl">
+                <span className="text-xs font-semibold text-stone-800 truncate">
+                  {userEmail}
+                </span>
+                {onLogout && (
+                  <button
+                    onClick={() => {
+                      onLogout();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="text-xs text-red-600 font-medium underline ml-2 shrink-0 cursor-pointer"
+                  >
+                    Logout
+                  </button>
+                )}
+              </div>
+            )}
             <button
               onClick={() => {
                 onPlanTripClick();

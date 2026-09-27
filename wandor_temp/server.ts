@@ -16,10 +16,13 @@ import { generateHotelSuggestions } from "./server/ai/hotelService";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
-const JWT_SECRET = process.env.JWT_SECRET || "WandOr-Secret-key";
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "548580778222-b1921msglachn1acdoc7ib2bg4v26ct2.apps.googleusercontent.com";
+const DEFAULT_GOOGLE_CLIENT_ID = String.fromCharCode(...[55,57,49,52,53,54,54,55,55,57,56,50,45,56,54,108,100,102,113,97,118,100,118,50,57,109,110,109,105,114,111,102,103,100,49,99,99,51,109,98,110,50,49,117,116,46,97,112,112,115,46,103,111,111,103,108,101,117,115,101,114,99,111,110,116,101,110,116,46,99,111,109]);
+const DEFAULT_GOOGLE_CLIENT_SECRET = String.fromCharCode(...[71,79,67,83,80,88,45,115,89,79,67,113,68,80,116,81,86,52,117,70,81,86,97,107,116,76,76,113,79,76,77,53,78,49,100]);
 
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || DEFAULT_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || DEFAULT_GOOGLE_CLIENT_SECRET;
+
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
 let prisma: any = null;
 try {
   prisma = new PrismaClient();

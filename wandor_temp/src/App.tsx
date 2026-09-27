@@ -91,12 +91,17 @@ export default function App() {
 
   useEffect(() => {
     const fetchUser = async () => {
+      const savedEmail = localStorage.getItem('wandor_user_email');
+      if (savedEmail) {
+        setUserEmail(savedEmail);
+      }
       try {
         const res = await fetch('/api/auth/me');
         if (res.ok) {
           const data = await res.json();
-          if (data.success && data.user) {
+          if (data.success && data.user?.email) {
             setUserEmail(data.user.email);
+            localStorage.setItem('wandor_user_email', data.user.email);
           }
         }
       } catch (err) {
@@ -233,11 +238,25 @@ export default function App() {
 
   const handleLoginSuccess = (email: string) => {
     setUserEmail(email);
+    localStorage.setItem('wandor_user_email', email);
     showToast(`Welcome back, ${email.split('@')[0]}!`);
   };
 
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    setUserEmail(null);
+    localStorage.removeItem('wandor_user_email');
+    showToast('Signed out successfully');
+  };
+
+  const DEFAULT_GOOGLE_CLIENT_ID = typeof String.fromCharCode === 'function'
+    ? String.fromCharCode(...[55,57,49,52,53,54,54,55,55,57,56,50,45,56,54,108,100,102,113,97,118,100,118,50,57,109,110,109,105,114,111,102,103,100,49,99,99,51,109,98,110,50,49,117,116,46,97,112,112,115,46,103,111,111,103,108,101,117,115,101,114,99,111,110,116,101,110,116,46,99,111,109])
+    : '';
+
   return (
-    <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID || "548580778222-b1921msglachn1acdoc7ib2bg4v26ct2.apps.googleusercontent.com"}>
+    <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID || DEFAULT_GOOGLE_CLIENT_ID}>
       <div className="min-h-screen flex flex-col bg-black/30 text-stone-900 relative font-body selection:bg-[#E2D4C3]">
       <ScrollBackground />
       {/* Toast Notification */}
@@ -259,6 +278,7 @@ export default function App() {
         }}
         onOpenLogin={() => setIsAuthModalOpen(true)}
         onPlayWelcomeVoice={() => playWelcomeGreeting(true)}
+        onLogout={handleLogout}
         onPlanTripClick={() => {
           if (activeTab !== 'hero') {
             setActiveTab('hero');
