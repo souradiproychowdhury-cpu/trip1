@@ -27,47 +27,66 @@ export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Welcome voice greeting when the app opens: "Welcome! Plan a trip and enjoy the trip."
-  useEffect(() => {
-    const hasWelcomed = sessionStorage.getItem('wandor_welcomed_tts');
-    if (!hasWelcomed && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const speakWelcome = () => {
-        try {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance("Welcome! Plan a trip and enjoy the trip.");
-          utterance.rate = 0.95;
-          utterance.pitch = 1.05;
-          utterance.lang = 'en-US';
-          window.speechSynthesis.speak(utterance);
-          sessionStorage.setItem('wandor_welcomed_tts', 'true');
-        } catch (e) {
-          console.warn("Welcome TTS error:", e);
-        }
+  // Welcome voice greeting when the app opens: "Welcome to Wandor! Plan a trip and enjoy your journey."
+  const playWelcomeGreeting = (force: boolean = false) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!force && sessionStorage.getItem('wandor_welcomed_tts')) return;
+
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+
+      const utterance = new SpeechSynthesisUtterance("Welcome to Wandor! Plan a trip and enjoy your journey.");
+      utterance.rate = 0.95;
+      utterance.pitch = 1.05;
+      utterance.lang = 'en-US';
+
+      // Pick natural English voice if available
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        const preferredVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Zira')));
+        if (preferredVoice) utterance.voice = preferredVoice;
+      }
+
+      utterance.onstart = () => {
+        sessionStorage.setItem('wandor_welcomed_tts', 'true');
       };
 
-      // Play shortly after load
-      const timer = setTimeout(() => {
-        speakWelcome();
-      }, 600);
-
-      // Play on first user interaction if browser policy blocked autoplay
-      const onFirstTouch = () => {
-        if (!sessionStorage.getItem('wandor_welcomed_tts')) {
-          speakWelcome();
-        }
-        window.removeEventListener('click', onFirstTouch);
-        window.removeEventListener('keydown', onFirstTouch);
-      };
-
-      window.addEventListener('click', onFirstTouch, { once: true });
-      window.addEventListener('keydown', onFirstTouch, { once: true });
-
-      return () => {
-        clearTimeout(timer);
-        window.removeEventListener('click', onFirstTouch);
-        window.removeEventListener('keydown', onFirstTouch);
-      };
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("Welcome TTS error:", e);
     }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    // 1. Try immediate greeting after page settle
+    const timer = setTimeout(() => {
+      playWelcomeGreeting(false);
+    }, 700);
+
+    // 2. Play on first user gesture (pointerdown/touchstart/click/keydown) if autoplay was blocked by browser
+    const handleFirstGesture = () => {
+      playWelcomeGreeting(false);
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
+      window.removeEventListener('click', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+    };
+
+    window.addEventListener('pointerdown', handleFirstGesture, { once: true, passive: true });
+    window.addEventListener('touchstart', handleFirstGesture, { once: true, passive: true });
+    window.addEventListener('click', handleFirstGesture, { once: true });
+    window.addEventListener('keydown', handleFirstGesture, { once: true });
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
+      window.removeEventListener('click', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+    };
   }, []);
 
   useEffect(() => {
@@ -219,7 +238,7 @@ export default function App() {
 
   return (
     <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID || "mock-client-id"}>
-      <div className="min-h-screen flex flex-col bg-black/30 text-stone-900 relative font-body selection:bg-[#E2D4C3]">
+      <div className="min-h-screen flex flex-col bg-stone-950/15 text-stone-900 relative font-body selection:bg-[#E2D4C3]">
       <ScrollBackground />
       {/* Toast Notification */}
       {toastMessage && (
@@ -239,6 +258,7 @@ export default function App() {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         onOpenLogin={() => setIsAuthModalOpen(true)}
+        onPlayWelcomeVoice={() => playWelcomeGreeting(true)}
         onPlanTripClick={() => {
           if (activeTab !== 'hero') {
             setActiveTab('hero');

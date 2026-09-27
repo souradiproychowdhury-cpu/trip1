@@ -9,7 +9,7 @@
   }
 
   body {
-    background-color: #F6F1EA;
+    background-color: transparent;
     color: #1c1917;
     font-family: var(--font-body);
     margin: 0;

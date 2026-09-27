@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Menu, X, Compass, Sparkles, User, MapPin } from 'lucide-react';
+import { Menu, X, Compass, Sparkles, User, MapPin, Volume2 } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'hero' | 'discover' | 'faqs' | 'itinerary' | 'my-trips';
   onSelectTab: (tab: 'hero' | 'discover' | 'faqs' | 'itinerary' | 'my-trips') => void;
   onOpenLogin: () => void;
   onPlanTripClick: () => void;
+  onPlayWelcomeVoice?: () => void;
   userEmail: string | null;
 }
 
@@ -14,6 +15,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectTab,
   onOpenLogin,
   onPlanTripClick,
+  onPlayWelcomeVoice,
   userEmail
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -79,8 +81,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </nav>
 
-        {/* Right Nav Action Buttons: LOGIN & PLAN MY TRIP */}
-        <div className="hidden md:flex items-center gap-6">
+        {/* Right Nav Action Buttons: Welcome Voice, LOGIN & PLAN MY TRIP */}
+        <div className="hidden md:flex items-center gap-4 lg:gap-6">
+          {onPlayWelcomeVoice && (
+            <button
+              onClick={onPlayWelcomeVoice}
+              title="Play Welcome Voice Greeting"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/75 hover:bg-white text-stone-800 border border-stone-200/90 text-xs font-semibold shadow-2xs transition-all cursor-pointer hover:shadow-xs active:scale-95"
+            >
+              <Volume2 className="w-3.5 h-3.5 text-amber-700" />
+              <span>Voice</span>
+            </button>
+          )}
+
           {!userEmail ? (
             <button
               onClick={onOpenLogin}
@@ -102,20 +115,29 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         </div>
 
-        {/* Mobile Hamburger Button */}
-        <div className="flex md:hidden items-center gap-3">
+        {/* Mobile Action Buttons */}
+        <div className="flex md:hidden items-center gap-2 sm:gap-3">
+          {onPlayWelcomeVoice && (
+            <button
+              onClick={onPlayWelcomeVoice}
+              title="Play Welcome Voice Greeting"
+              className="p-2 rounded-full bg-white/75 hover:bg-white text-stone-800 border border-stone-200 text-xs shadow-2xs transition-all cursor-pointer"
+            >
+              <Volume2 className="w-4 h-4 text-amber-700" />
+            </button>
+          )}
           <button
             onClick={onPlanTripClick}
-            className="bg-[#121212] text-white text-[11px] font-semibold tracking-wider uppercase px-4 py-2 rounded-full"
+            className="bg-[#121212] text-white text-[11px] font-semibold tracking-wider uppercase px-3.5 py-1.5 rounded-full"
           >
             PLAN
           </button>
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 text-stone-800 hover:text-black focus:outline-none"
+            className="p-1.5 text-stone-800 hover:text-black focus:outline-none"
             aria-label="Toggle menu"
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {mobileMenuOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Menu className="w-5 h-5 sm:w-6 sm:h-6" />}
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 export const ScrollBackground: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -12,57 +12,102 @@ export const ScrollBackground: React.FC = () => {
     const context = canvas.getContext('2d');
     if (!context) return;
 
+    let currentFrameIndex = 0;
     const images: HTMLImageElement[] = [];
 
-    // Preload first image
-    const img = new Image();
-    img.src = currentFrame(1);
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      context.drawImage(img, 0, 0);
+    // Helper to draw an image to canvas with 'cover' aspect ratio (fills screen on mobile & desktop)
+    const drawCoverImage = (img: HTMLImageElement) => {
+      if (!canvas || !context || !img || !img.complete || img.naturalWidth === 0) return;
+
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+
+      const scale = Math.max(cw / iw, ch / ih);
+      const nw = iw * scale;
+      const nh = ih * scale;
+      const nx = (cw - nw) / 2;
+      const ny = (ch - nh) / 2;
+
+      context.clearRect(0, 0, cw, ch);
+      context.drawImage(img, nx, ny, nw, nh);
     };
 
-    // Preload rest
+    // Responsive Canvas Resize
+    const resizeCanvas = () => {
+      if (!canvas) return;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (images[currentFrameIndex]) {
+        drawCoverImage(images[currentFrameIndex]);
+      }
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Preload first image and render immediately
+    const firstImg = new Image();
+    firstImg.src = currentFrame(1);
+    firstImg.onload = () => {
+      images[0] = firstImg;
+      drawCoverImage(firstImg);
+    };
+
+    // Preload remaining frames progressively
     for (let i = 1; i <= frameCount; i++) {
       const imgObj = new Image();
       imgObj.src = currentFrame(i);
-      images.push(imgObj);
+      imgObj.onload = () => {
+        if (i - 1 === currentFrameIndex) {
+          drawCoverImage(imgObj);
+        }
+      };
+      images[i - 1] = imgObj;
     }
 
+    // Scroll Handler (supports desktop wheel & mobile touch scrolling)
     const handleScroll = () => {
-      const scrollTop = document.documentElement.scrollTop;
-      const maxScrollTop = document.documentElement.scrollHeight - window.innerHeight;
-      const scrollFraction = maxScrollTop > 0 ? scrollTop / maxScrollTop : 0;
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+      const maxScrollTop = (document.documentElement.scrollHeight || document.body.scrollHeight) - window.innerHeight;
+      const scrollFraction = maxScrollTop > 0 ? Math.min(1, Math.max(0, scrollTop / maxScrollTop)) : 0;
       
       const frameIndex = Math.min(
         frameCount - 1,
         Math.floor(scrollFraction * frameCount)
       );
 
+      currentFrameIndex = frameIndex;
+
       requestAnimationFrame(() => {
         if (images[frameIndex] && images[frameIndex].complete) {
-          context.drawImage(images[frameIndex], 0, 0);
+          drawCoverImage(images[frameIndex]);
         }
       });
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener('touchmove', handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('touchmove', handleScroll);
+    };
   }, []);
 
   return (
     <canvas
       ref={canvasRef}
+      className="fixed inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-500"
       style={{
+        zIndex: 0,
         position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        maxWidth: '100vw',
-        maxHeight: '100vh',
-        objectFit: 'cover',
-        zIndex: -1,
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
         pointerEvents: 'none'
       }}
     />
