@@ -49,8 +49,10 @@ export interface HikeSpot {
 
 export interface BudgetEstimate {
   currency: string;
+  travelersCount?: number;
   totalLow: number;
   totalHigh: number;
+  perPersonTotal?: { low: number; high: number };
   breakdown: {
     flights: { low: number; high: number };
     accommodation: { low: number; high: number };

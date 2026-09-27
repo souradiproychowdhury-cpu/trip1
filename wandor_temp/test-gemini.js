@@ -1,12 +1,13 @@
-require('dotenv').config();
-const { GoogleGenAI } = require('@google/genai');
+import 'dotenv/config';
+import { GoogleGenAI } from '@google/genai';
 
 async function test() {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    console.log("Checking API access...");
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    console.log(`Checking API access with model ${model}...`);
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: model,
       contents: "Respond with a short JSON containing { \"success\": true }",
       config: {
         responseMimeType: 'application/json',

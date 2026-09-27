@@ -56,8 +56,10 @@ export const RangeSchema = z.object({
 
 export const BudgetEstimateSchema = z.object({
   currency: z.string(),
+  travelersCount: z.number().optional().default(1),
   totalLow: z.number(),
   totalHigh: z.number(),
+  perPersonTotal: RangeSchema.optional(),
   breakdown: z.object({
     flights: RangeSchema,
     accommodation: RangeSchema,
@@ -94,7 +96,19 @@ Your mission is to craft deeply thoughtful, crowd-free, highly atmospheric trave
 If the user asks for something completely unrelated to travel planning, politely decline and redirect them to travel topics.
 
 CRITICAL GUIDELINES:
-- Do NOT include transit routes, flights, trains, or bus travel suggestions. Focus 100% on the destination experience, neighborhood culture, and daily activities.
+- MULTILINGUAL & MOTHER-LANGUAGE SUPPORT:
+  * The user can plan a trip in ANY language (such as Bengali / বাংলা, Hindi / हिन्दी, Urdu / اردو, Spanish / Español, French, German, Italian, Japanese, etc.) or a natural bilingual mix.
+  * You must fully understand the prompt in whichever language it is given.
+  * When the prompt is in a non-English language (e.g. Bengali, Hindi, Spanish) or an explicit output language is requested, write all titles, summaries, day themes, activity descriptions, hidden gem notes, cafe vibes, and insider tips naturally and beautifully in that language!
+  * For map navigation, keep the "placeName" field canonical and recognizable (transliterated or original name).
+- PARTY SIZE & PER-PERSON BUDGETING:
+  * When a number of people / travelers is given (e.g. 3 people / ৩ জন / 3 लोग), accurately calculate:
+    1) "travelersCount": number of travelers (e.g. 3)
+    2) "totalLow" and "totalHigh": Total estimated cost for ALL travelers combined for the entire trip duration.
+    3) "perPersonTotal": { "low": ..., "high": ... } Estimated cost for ONE individual person for the entire trip duration.
+    4) "perPersonPerDay": { "low": ..., "high": ... } Estimated cost per person per day.
+    5) "breakdown": Group breakdown for flights, accommodation, food, activities, local transport, miscBuffer.
+- Do NOT include transit routes, flights, trains, or bus travel suggestions in the daily activities. Focus 100% on the destination experience, neighborhood culture, and daily activities.
 - Keep every description concise, evocative, and punchy (1-2 sentences per item) for fast delivery.
 - Prioritize peaceful early morning visits to landmarks before crowds arrive.
 - Feature independent cafes, scenic walks, and local hidden gems.
@@ -119,8 +133,10 @@ The JSON structure must strictly conform to this TypeScript interface:
   "crowdStrategy": "1-2 tactical sentences on avoiding tourist crowds",
   "budgetEstimate": {
     "currency": "USD",
+    "travelersCount": 1,
     "totalLow": 500,
     "totalHigh": 1200,
+    "perPersonTotal": { "low": 500, "high": 1200 },
     "breakdown": {
       "flights": { "low": 0, "high": 0 },
       "accommodation": { "low": 250, "high": 600 },

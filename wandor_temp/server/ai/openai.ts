@@ -19,10 +19,21 @@ export class OpenAIProvider implements AIProvider {
     return this.client !== null;
   }
 
-  async generateItinerary(prompt: string, attachmentText?: string, retryError?: string): Promise<TripItinerary> {
+  async generateItinerary(
+    prompt: string,
+    attachmentText?: string,
+    retryError?: string,
+    options?: { travelersCount?: number; language?: string }
+  ): Promise<TripItinerary> {
     if (!this.client) throw new Error('OpenAI not configured');
 
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
+    if (options?.travelersCount && options.travelersCount > 0) {
+      userMessage += `\n\nTRAVEL PARTY: ${options.travelersCount} traveler(s). Calculate the budget for this party size: totalLow & totalHigh must be the full total for all ${options.travelersCount} travelers combined, and perPersonTotal & perPersonPerDay must be the individual per-person amount.`;
+    }
+    if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
+      userMessage += `\n\nLANGUAGE PREFERENCE: Please generate all itinerary descriptions, titles, summaries, themes, vibes, notes, and insider tips naturally in ${options.language}. Keep canonical landmark placeNames recognizable.`;
+    }
     if (attachmentText) {
       userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;
     }
@@ -41,7 +52,18 @@ export class OpenAIProvider implements AIProvider {
     });
 
     const responseText = response.choices[0]?.message?.content || '';
-    return JSON.parse(responseText);
+    const parsed = JSON.parse(responseText);
+    const travelersCount = options?.travelersCount || parsed.budgetEstimate?.travelersCount || 1;
+    if (parsed.budgetEstimate) {
+      parsed.budgetEstimate.travelersCount = travelersCount;
+      if (!parsed.budgetEstimate.perPersonTotal && parsed.budgetEstimate.totalLow && parsed.budgetEstimate.totalHigh) {
+        parsed.budgetEstimate.perPersonTotal = {
+          low: Math.round(parsed.budgetEstimate.totalLow / Math.max(travelersCount, 1)),
+          high: Math.round(parsed.budgetEstimate.totalHigh / Math.max(travelersCount, 1)),
+        };
+      }
+    }
+    return parsed;
   }
 
   async refineItinerary(current: TripItinerary, refinePrompt: string, retryError?: string): Promise<TripItinerary> {

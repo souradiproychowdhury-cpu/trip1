@@ -21,6 +21,7 @@ const DEFAULT_GOOGLE_CLIENT_SECRET = String.fromCharCode(...[71,79,67,83,80,88,4
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || DEFAULT_GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || DEFAULT_GOOGLE_CLIENT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "wandor_super_secret_key_123";
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
 let prisma: any = null;
@@ -810,7 +811,7 @@ app.post(["/api/extract-attachment", "/extract-attachment"], upload.single('file
 
 // Primary Endpoint: Plan Trip
 app.post(["/api/plan-trip", "/plan-trip"], aiLimiter, async (req, res) => {
-  const { prompt, attachmentSummary, geminiKey } = req.body;
+  const { prompt, travelersCount, language, attachmentSummary, geminiKey } = req.body;
   const clientKey = (req.headers['x-gemini-key'] as string) || geminiKey;
   const user = (req as any).user;
 
@@ -818,9 +819,38 @@ app.post(["/api/plan-trip", "/plan-trip"], aiLimiter, async (req, res) => {
     return res.status(400).json({ error: "A prompt is required." });
   }
 
+  // Parse party size from prompt if travelersCount was not passed or default
+  let partySize = Number(travelersCount) || 0;
+  if (!partySize || partySize < 1) {
+    const peopleMatch = prompt.match(/(\d+)\s*(?:people|persons|person|জন|লোক|যাত্রী|लोग|personas|travelers)/i);
+    if (peopleMatch) {
+      partySize = parseInt(peopleMatch[1], 10);
+    } else if (/\b(?:couple|দুইজন|दो लोग|dos personas)\b/i.test(prompt)) {
+      partySize = 2;
+    } else if (/\b(?:solo|একা|अकेले|solo traveler)\b/i.test(prompt)) {
+      partySize = 1;
+    } else {
+      partySize = 1;
+    }
+  }
+
   try {
-    const itinerary = await generateItinerary(prompt, attachmentSummary, clientKey);
+    const itinerary = await generateItinerary(prompt, attachmentSummary, clientKey, {
+      travelersCount: partySize,
+      language
+    });
     itinerary.id = `trip-${Date.now()}`;
+
+    // Ensure budgetEstimate has both full total and per-person values
+    if (itinerary.budgetEstimate) {
+      itinerary.budgetEstimate.travelersCount = partySize;
+      if (!itinerary.budgetEstimate.perPersonTotal && itinerary.budgetEstimate.totalLow && itinerary.budgetEstimate.totalHigh) {
+        itinerary.budgetEstimate.perPersonTotal = {
+          low: Math.round(itinerary.budgetEstimate.totalLow / Math.max(partySize, 1)),
+          high: Math.round(itinerary.budgetEstimate.totalHigh / Math.max(partySize, 1))
+        };
+      }
+    }
 
     // Auto-generate flight and train timings using Aviationstack and Train timing APIs
     try {

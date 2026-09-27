@@ -27,7 +27,11 @@ export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Welcome voice greeting when the app opens: "Welcome to Wandor! Plan a trip and enjoy your journey."
+  const [travelersCount, setTravelersCount] = useState<number>(3);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('Auto');
+
+  // Welcome voice greeting when the app opens in English, Hindi, and Bengali:
+  // "Welcome to Wandor! नमस्कार! वांडोर में आपका स्वागत है। নমস্কার! ওয়ান্ডরে আপনাকে স্বাগতম।"
   const playWelcomeGreeting = (force: boolean = false) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     if (!force && sessionStorage.getItem('wandor_welcomed_tts')) return;
@@ -36,23 +40,48 @@ export default function App() {
       window.speechSynthesis.cancel();
       window.speechSynthesis.resume();
 
-      const utterance = new SpeechSynthesisUtterance("Welcome to Wandor! Plan a trip and enjoy your journey.");
-      utterance.rate = 0.95;
-      utterance.pitch = 1.05;
-      utterance.lang = 'en-US';
-
-      // Pick natural English voice if available
       const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        const preferredVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Zira')));
-        if (preferredVoice) utterance.voice = preferredVoice;
-      }
 
-      utterance.onstart = () => {
+      // 1. English Utterance
+      const uttEn = new SpeechSynthesisUtterance("Welcome to Wandor! Plan your trip in any language.");
+      uttEn.lang = 'en-US';
+      uttEn.rate = 1.0;
+      const enVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Zira')));
+      if (enVoice) uttEn.voice = enVoice;
+
+      // 2. Hindi Utterance ("नमस्कार! वांडोर में आपका स्वागत है।")
+      const uttHi = new SpeechSynthesisUtterance("नमस्कार! वांडोर में आपका स्वागत है।");
+      uttHi.lang = 'hi-IN';
+      uttHi.rate = 0.95;
+      const hiVoice = voices.find(v => v.lang.startsWith('hi'));
+      if (hiVoice) uttHi.voice = hiVoice;
+
+      // 3. Bengali Utterance ("নমস্কার! ওয়ান্ডরে আপনাকে স্বাগতম।")
+      const uttBn = new SpeechSynthesisUtterance("নমস্কার! ওয়ান্ডরে আপনাকে স্বাগতম।");
+      uttBn.lang = 'bn-IN';
+      uttBn.rate = 0.95;
+      const bnVoice = voices.find(v => v.lang.startsWith('bn'));
+      if (bnVoice) uttBn.voice = bnVoice;
+
+      uttEn.onstart = () => {
         sessionStorage.setItem('wandor_welcomed_tts', 'true');
       };
 
-      window.speechSynthesis.speak(utterance);
+      // Play sequentially with robust error fallback
+      uttEn.onend = () => {
+        try { window.speechSynthesis.speak(uttHi); } catch {}
+      };
+      uttEn.onerror = () => {
+        try { window.speechSynthesis.speak(uttHi); } catch {}
+      };
+      uttHi.onend = () => {
+        try { window.speechSynthesis.speak(uttBn); } catch {}
+      };
+      uttHi.onerror = () => {
+        try { window.speechSynthesis.speak(uttBn); } catch {}
+      };
+
+      window.speechSynthesis.speak(uttEn);
     } catch (e) {
       console.warn("Welcome TTS error:", e);
     }
@@ -132,6 +161,8 @@ export default function App() {
         },
         body: JSON.stringify({
           prompt,
+          travelersCount,
+          language: selectedLanguage,
           attachmentSummary: attachment?.summary,
           attachmentBase64: attachment?.base64,
           attachmentMimeType: attachment?.mimeType,
@@ -178,6 +209,8 @@ export default function App() {
       },
       body: JSON.stringify({
         prompt: currentPrompt,
+        travelersCount,
+        language: selectedLanguage,
         attachmentSummary: attachment?.summary,
         attachmentBase64: attachment?.base64,
         attachmentMimeType: attachment?.mimeType,
@@ -301,6 +334,11 @@ export default function App() {
             onOpenAttachmentModal={() => setIsAttachmentModalOpen(true)}
             attachment={attachment}
             onRemoveAttachment={() => setAttachment(null)}
+            travelersCount={travelersCount}
+            setTravelersCount={setTravelersCount}
+            selectedLanguage={selectedLanguage}
+            setSelectedLanguage={setSelectedLanguage}
+            onPlayWelcomeGreeting={() => playWelcomeGreeting(true)}
           />
         )}
 

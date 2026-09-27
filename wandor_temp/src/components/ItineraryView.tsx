@@ -17,7 +17,12 @@ import {
   Sunset,
   Sunrise,
   Send,
-  Printer
+  Printer,
+  Users,
+  User,
+  Plus,
+  Minus,
+  Calculator
 } from 'lucide-react';
 import { TripItinerary, DayPlan } from '../types';
 import { LocationImage } from './LocationImage';
@@ -52,6 +57,9 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
   const [isTranslating, setIsTranslating] = useState(false);
   const { formatRange } = useCurrency();
 
+  const [budgetTravelers, setBudgetTravelers] = useState<number>(() => itinerary.budgetEstimate?.travelersCount || 1);
+  const [budgetViewMode, setBudgetViewMode] = useState<'both' | 'group' | 'perPerson'>('both');
+
   // Instant client-side translation cache
   const translationCache = useRef<Record<string, TripItinerary>>({
     English: itinerary
@@ -60,6 +68,9 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
   useEffect(() => {
     setCurrentItinerary(itinerary);
     translationCache.current = { English: itinerary };
+    if (itinerary.budgetEstimate?.travelersCount) {
+      setBudgetTravelers(itinerary.budgetEstimate.travelersCount);
+    }
   }, [itinerary]);
 
   const translationLanguages = [
@@ -291,16 +302,28 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
           <p className="mt-1 text-sm text-stone-700 leading-relaxed">
             {currentItinerary.crowdStrategy}
           </p>
-          <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-stone-600">
+          <div className="mt-3 flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-stone-600">
             <span><strong>Estimated Pace:</strong> {currentItinerary.vibe}</span>
             <span>•</span>
-            <span>
+            <span className="flex flex-wrap items-center gap-1.5">
               <strong>Target Budget:</strong>{' '}
               <span className="font-bold text-stone-900">
                 {currentItinerary.budgetEstimate
                   ? formatRange(currentItinerary.budgetEstimate.totalLow, currentItinerary.budgetEstimate.totalHigh, baseCurrency)
                   : 'N/A'}
               </span>
+              {currentItinerary.budgetEstimate && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/80 text-amber-900 font-medium text-[11px] border border-amber-200">
+                  <Users className="w-3 h-3" />
+                  <span>
+                    {budgetTravelers} {budgetTravelers === 1 ? 'person' : 'people'} (approx. {formatRange(
+                      currentItinerary.budgetEstimate.perPersonTotal?.low || Math.round(currentItinerary.budgetEstimate.totalLow / Math.max(budgetTravelers, 1)),
+                      currentItinerary.budgetEstimate.perPersonTotal?.high || Math.round(currentItinerary.budgetEstimate.totalHigh / Math.max(budgetTravelers, 1)),
+                      baseCurrency
+                    )} / person)
+                  </span>
+                </span>
+              )}
             </span>
           </div>
         </div>
@@ -1060,72 +1083,262 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
                   destination={currentItinerary.destination}
                 />
 
-                {/* Budget Breakdown with Currency Selector */}
-                {(currentItinerary.budgetEstimate || itinerary.budgetEstimate)?.breakdown && (
-                  <div className="p-5 sm:p-6 bg-[#FAF6F0] rounded-2xl border border-stone-200 shadow-2xs mt-6">
-                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-stone-200">
-                      <h3 className="text-sm font-heading font-bold text-stone-900 flex items-center gap-2">
-                        Budget Breakdown
-                      </h3>
-                      {/* Currency Selector for Trip Budget */}
-                      <CurrencySelector />
-                    </div>
+                {/* Budget Breakdown with Currency Selector & Per-Person Cost Split */}
+                {(currentItinerary.budgetEstimate || itinerary.budgetEstimate)?.breakdown && (() => {
+                  const est = currentItinerary.budgetEstimate || itinerary.budgetEstimate;
+                  const originalTravelers = est.travelersCount || 1;
+                  const currentTravelers = Math.max(1, budgetTravelers);
+                  // Scale factor if user adjusts traveler counter
+                  const multiplier = currentTravelers / Math.max(1, originalTravelers);
 
-                    <div className="space-y-2.5 mb-4">
-                      <div className="flex justify-between text-xs text-stone-600">
-                        <span>Flights (Est.)</span>
-                        <span className="font-semibold text-stone-900">
-                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.flights.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.flights.high, baseCurrency)}
-                        </span>
+                  const groupTotalLow = Math.round(est.totalLow * multiplier);
+                  const groupTotalHigh = Math.round(est.totalHigh * multiplier);
+
+                  const personTotalLow = est.perPersonTotal?.low 
+                    ? Math.round(est.perPersonTotal.low * (multiplier / multiplier)) // keep base per-person
+                    : Math.round(est.totalLow / Math.max(1, originalTravelers));
+                  const personTotalHigh = est.perPersonTotal?.high 
+                    ? Math.round(est.perPersonTotal.high)
+                    : Math.round(est.totalHigh / Math.max(1, originalTravelers));
+
+                  const dailyLow = est.perPersonPerDay?.low || Math.round(personTotalLow / Math.max(currentItinerary.days.length, 1));
+                  const dailyHigh = est.perPersonPerDay?.high || Math.round(personTotalHigh / Math.max(currentItinerary.days.length, 1));
+
+                  return (
+                    <div className="p-5 sm:p-6 bg-[#FAF6F0] rounded-2xl border border-stone-200 shadow-2xs mt-6">
+                      {/* Header with Currency Selector */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-stone-200">
+                        <div>
+                          <h3 className="text-sm font-heading font-bold text-stone-900 flex items-center gap-2">
+                            <Calculator className="w-4 h-4 text-amber-700" />
+                            <span>Budget &amp; Per-Person Cost Split</span>
+                          </h3>
+                          <p className="text-[11px] text-stone-500 mt-0.5">
+                            AI-calculated pricing per traveler &amp; full group
+                          </p>
+                        </div>
+                        <CurrencySelector />
                       </div>
-                      <div className="flex justify-between text-xs text-stone-600">
-                        <span>Accommodation</span>
-                        <span className="font-semibold text-stone-900">
-                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.accommodation.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.accommodation.high, baseCurrency)}
-                        </span>
+
+                      {/* Interactive Travelers Stepper Section */}
+                      <div className="mb-4 p-3 rounded-xl bg-white/80 border border-stone-200/70 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-amber-700" />
+                          <div>
+                            <div className="text-xs font-semibold text-stone-900">
+                              Party Size: {currentTravelers} {currentTravelers === 1 ? 'Traveler' : 'Travelers'}
+                            </div>
+                            <div className="text-[10px] text-stone-500">
+                              Adjust to recalculate budget split live
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setBudgetTravelers(prev => Math.max(1, prev - 1))}
+                            disabled={budgetTravelers <= 1}
+                            className="w-6 h-6 rounded-full bg-stone-100 hover:bg-stone-200 disabled:opacity-30 disabled:cursor-not-allowed text-stone-700 flex items-center justify-center border border-stone-200 shadow-2xs transition-colors cursor-pointer"
+                            aria-label="Decrease traveler count"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="min-w-[42px] text-center font-bold text-xs text-stone-900 px-1 py-0.5 rounded bg-amber-50 border border-amber-200/60">
+                            {currentTravelers}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setBudgetTravelers(prev => Math.min(20, prev + 1))}
+                            disabled={budgetTravelers >= 20}
+                            className="w-6 h-6 rounded-full bg-stone-100 hover:bg-stone-200 disabled:opacity-30 disabled:cursor-not-allowed text-stone-700 flex items-center justify-center border border-stone-200 shadow-2xs transition-colors cursor-pointer"
+                            aria-label="Increase traveler count"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex justify-between text-xs text-stone-600">
-                        <span>Food & Dining</span>
-                        <span className="font-semibold text-stone-900">
-                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.food.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.food.high, baseCurrency)}
-                        </span>
+
+                      {/* Dual Budget Metric Highlights: Group Total + Per-Person */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+                        {/* Group Total Card */}
+                        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-left">
+                          <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-900">
+                            Full Trip Budget ({currentTravelers} {currentTravelers === 1 ? 'Person' : 'People'})
+                          </div>
+                          <div className="text-base sm:text-lg font-extrabold text-stone-900 mt-1">
+                            {formatRange(groupTotalLow, groupTotalHigh, baseCurrency)}
+                          </div>
+                          <div className="text-[10px] text-amber-800 mt-0.5">
+                            Combined total for all {currentTravelers} travelers
+                          </div>
+                        </div>
+
+                        {/* Per-Person Card */}
+                        <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-left">
+                          <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-900">
+                            Per-Person (Entire Trip)
+                          </div>
+                          <div className="text-base sm:text-lg font-extrabold text-emerald-950 mt-1">
+                            {formatRange(personTotalLow, personTotalHigh, baseCurrency)}
+                          </div>
+                          <div className="text-[10px] text-emerald-800 mt-0.5">
+                            ~{formatRange(dailyLow, dailyHigh, baseCurrency)} per day / person
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-between text-xs text-stone-600">
-                        <span>Activities & Entry</span>
-                        <span className="font-semibold text-stone-900">
-                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.activities.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.activities.high, baseCurrency)}
-                        </span>
+
+                      {/* View Mode Switcher */}
+                      <div className="flex items-center justify-end gap-1 mb-3">
+                        <span className="text-[10px] text-stone-500 mr-1">Display:</span>
+                        <button
+                          type="button"
+                          onClick={() => setBudgetViewMode('both')}
+                          className={`text-[10px] px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                            budgetViewMode === 'both' ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-200'
+                          }`}
+                        >
+                          Combined
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBudgetViewMode('group')}
+                          className={`text-[10px] px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                            budgetViewMode === 'group' ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-200'
+                          }`}
+                        >
+                          Total Group
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBudgetViewMode('perPerson')}
+                          className={`text-[10px] px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                            budgetViewMode === 'perPerson' ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-200'
+                          }`}
+                        >
+                          Per Person
+                        </button>
                       </div>
-                      <div className="flex justify-between text-xs text-stone-600">
-                        <span>Local Transport</span>
-                        <span className="font-semibold text-stone-900">
-                          {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.localTransport.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).breakdown.localTransport.high, baseCurrency)}
-                        </span>
-                      </div>
-                      {(currentItinerary.budgetEstimate || itinerary.budgetEstimate).perPersonPerDay && (
-                        <div className="flex justify-between text-xs text-stone-600 pt-1.5 border-t border-stone-200/60">
-                          <span>Per Person / Day</span>
-                          <span className="font-medium text-stone-800">
-                            {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).perPersonPerDay.low, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).perPersonPerDay.high, baseCurrency)}
+
+                      {/* Breakdown List */}
+                      <div className="space-y-2.5 mb-4 text-xs">
+                        {/* Flights */}
+                        <div className="flex justify-between items-center py-1 border-b border-stone-200/50">
+                          <span className="text-stone-700">Flights / Inbound Transit</span>
+                          <span className="font-semibold text-stone-900 text-right">
+                            {budgetViewMode === 'both' ? (
+                              <span>
+                                {formatRange(Math.round(est.breakdown.flights.low * multiplier), Math.round(est.breakdown.flights.high * multiplier), baseCurrency)}{' '}
+                                <span className="text-[10px] text-stone-500 font-normal">
+                                  ({formatRange(Math.round(est.breakdown.flights.low * multiplier / currentTravelers), Math.round(est.breakdown.flights.high * multiplier / currentTravelers), baseCurrency)}/p)
+                                </span>
+                              </span>
+                            ) : budgetViewMode === 'group' ? (
+                              formatRange(Math.round(est.breakdown.flights.low * multiplier), Math.round(est.breakdown.flights.high * multiplier), baseCurrency)
+                            ) : (
+                              formatRange(Math.round(est.breakdown.flights.low * multiplier / currentTravelers), Math.round(est.breakdown.flights.high * multiplier / currentTravelers), baseCurrency)
+                            )}
                           </span>
                         </div>
+
+                        {/* Accommodation */}
+                        <div className="flex justify-between items-center py-1 border-b border-stone-200/50">
+                          <span className="text-stone-700">Accommodation &amp; Stays</span>
+                          <span className="font-semibold text-stone-900 text-right">
+                            {budgetViewMode === 'both' ? (
+                              <span>
+                                {formatRange(Math.round(est.breakdown.accommodation.low * multiplier), Math.round(est.breakdown.accommodation.high * multiplier), baseCurrency)}{' '}
+                                <span className="text-[10px] text-stone-500 font-normal">
+                                  ({formatRange(Math.round(est.breakdown.accommodation.low * multiplier / currentTravelers), Math.round(est.breakdown.accommodation.high * multiplier / currentTravelers), baseCurrency)}/p)
+                                </span>
+                              </span>
+                            ) : budgetViewMode === 'group' ? (
+                              formatRange(Math.round(est.breakdown.accommodation.low * multiplier), Math.round(est.breakdown.accommodation.high * multiplier), baseCurrency)
+                            ) : (
+                              formatRange(Math.round(est.breakdown.accommodation.low * multiplier / currentTravelers), Math.round(est.breakdown.accommodation.high * multiplier / currentTravelers), baseCurrency)
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Food */}
+                        <div className="flex justify-between items-center py-1 border-b border-stone-200/50">
+                          <span className="text-stone-700">Food, Cafes &amp; Dining</span>
+                          <span className="font-semibold text-stone-900 text-right">
+                            {budgetViewMode === 'both' ? (
+                              <span>
+                                {formatRange(Math.round(est.breakdown.food.low * multiplier), Math.round(est.breakdown.food.high * multiplier), baseCurrency)}{' '}
+                                <span className="text-[10px] text-stone-500 font-normal">
+                                  ({formatRange(Math.round(est.breakdown.food.low * multiplier / currentTravelers), Math.round(est.breakdown.food.high * multiplier / currentTravelers), baseCurrency)}/p)
+                                </span>
+                              </span>
+                            ) : budgetViewMode === 'group' ? (
+                              formatRange(Math.round(est.breakdown.food.low * multiplier), Math.round(est.breakdown.food.high * multiplier), baseCurrency)
+                            ) : (
+                              formatRange(Math.round(est.breakdown.food.low * multiplier / currentTravelers), Math.round(est.breakdown.food.high * multiplier / currentTravelers), baseCurrency)
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Activities */}
+                        <div className="flex justify-between items-center py-1 border-b border-stone-200/50">
+                          <span className="text-stone-700">Activities, Entry &amp; Sightseeing</span>
+                          <span className="font-semibold text-stone-900 text-right">
+                            {budgetViewMode === 'both' ? (
+                              <span>
+                                {formatRange(Math.round(est.breakdown.activities.low * multiplier), Math.round(est.breakdown.activities.high * multiplier), baseCurrency)}{' '}
+                                <span className="text-[10px] text-stone-500 font-normal">
+                                  ({formatRange(Math.round(est.breakdown.activities.low * multiplier / currentTravelers), Math.round(est.breakdown.activities.high * multiplier / currentTravelers), baseCurrency)}/p)
+                                </span>
+                              </span>
+                            ) : budgetViewMode === 'group' ? (
+                              formatRange(Math.round(est.breakdown.activities.low * multiplier), Math.round(est.breakdown.activities.high * multiplier), baseCurrency)
+                            ) : (
+                              formatRange(Math.round(est.breakdown.activities.low * multiplier / currentTravelers), Math.round(est.breakdown.activities.high * multiplier / currentTravelers), baseCurrency)
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Local Transport */}
+                        <div className="flex justify-between items-center py-1 border-b border-stone-200/50">
+                          <span className="text-stone-700">Local Transport &amp; Cabs</span>
+                          <span className="font-semibold text-stone-900 text-right">
+                            {budgetViewMode === 'both' ? (
+                              <span>
+                                {formatRange(Math.round(est.breakdown.localTransport.low * multiplier), Math.round(est.breakdown.localTransport.high * multiplier), baseCurrency)}{' '}
+                                <span className="text-[10px] text-stone-500 font-normal">
+                                  ({formatRange(Math.round(est.breakdown.localTransport.low * multiplier / currentTravelers), Math.round(est.breakdown.localTransport.high * multiplier / currentTravelers), baseCurrency)}/p)
+                                </span>
+                              </span>
+                            ) : budgetViewMode === 'group' ? (
+                              formatRange(Math.round(est.breakdown.localTransport.low * multiplier), Math.round(est.breakdown.localTransport.high * multiplier), baseCurrency)
+                            ) : (
+                              formatRange(Math.round(est.breakdown.localTransport.low * multiplier / currentTravelers), Math.round(est.breakdown.localTransport.high * multiplier / currentTravelers), baseCurrency)
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Final Total Summary */}
+                      <div className="pt-3 border-t border-stone-300 flex justify-between items-center text-sm sm:text-base font-bold text-stone-900">
+                        <div>
+                          <span>Total Estimated Trip Cost</span>
+                          <div className="text-[11px] font-normal text-stone-500">
+                            for {currentTravelers} {currentTravelers === 1 ? 'traveler' : 'travelers'} ({formatRange(personTotalLow, personTotalHigh, baseCurrency)} / person)
+                          </div>
+                        </div>
+                        <span className="text-amber-900 font-extrabold text-base sm:text-lg">
+                          {formatRange(groupTotalLow, groupTotalHigh, baseCurrency)}
+                        </span>
+                      </div>
+
+                      {est.notes && (
+                        <p className="mt-3 text-[10px] text-stone-500 italic leading-snug">
+                          * {est.notes}
+                        </p>
                       )}
                     </div>
-
-                    <div className="pt-3 border-t border-stone-300 flex justify-between text-sm sm:text-base font-bold text-stone-900">
-                      <span>Total Estimated Budget</span>
-                      <span className="text-amber-900 font-extrabold">
-                        {formatRange((currentItinerary.budgetEstimate || itinerary.budgetEstimate).totalLow, (currentItinerary.budgetEstimate || itinerary.budgetEstimate).totalHigh, baseCurrency)}
-                      </span>
-                    </div>
-
-                    {(currentItinerary.budgetEstimate || itinerary.budgetEstimate).notes && (
-                      <p className="mt-3 text-[10px] text-stone-500 italic leading-snug">
-                        * {(currentItinerary.budgetEstimate || itinerary.budgetEstimate).notes}
-                      </p>
-                    )}
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           </div>
