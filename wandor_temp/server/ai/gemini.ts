@@ -74,8 +74,8 @@ export function extractRequestedDays(promptText: string): number {
 export class GeminiProvider implements AIProvider {
   name = 'gemini';
   private client: GoogleGenAI | null = null;
-  private primaryModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-  private fallbackModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-3.8-flash'];
+  private primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  private fallbackModels = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.8-flash'];
 
   constructor(explicitKey?: string) {
     const apiKey = explicitKey || process.env.GEMINI_API_KEY;
@@ -132,16 +132,35 @@ export class GeminiProvider implements AIProvider {
 - You MUST generate EXACTLY ${requestedDays} distinct day objects in the "days" array: Day 1, Day 2${requestedDays >= 3 ? `, ... up to Day ${requestedDays}` : ''}.
 - The "days" array MUST contain exactly ${requestedDays} items (length ${requestedDays}). NEVER output only 1 day when the prompt requests ${requestedDays} days!`;
 
+    // Determine target output language: Default to English unless prompt has non-Latin script or explicit language was chosen
+    const hasBengali = /[\u0980-\u09FF]/.test(prompt);
+    const hasHindi = /[\u0900-\u097F]/.test(prompt);
+    const hasUrdu = /[\u0600-\u06FF]/.test(prompt);
+    const hasJapanese = /[\u3040-\u30FF\u4E00-\u9FAF]/.test(prompt);
+
+    let targetLanguage = 'English';
+    if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
+      targetLanguage = options.language;
+    } else if (hasBengali) {
+      targetLanguage = 'Bengali';
+    } else if (hasHindi) {
+      targetLanguage = 'Hindi';
+    } else if (hasUrdu) {
+      targetLanguage = 'Urdu';
+    } else if (hasJapanese) {
+      targetLanguage = 'Japanese';
+    }
+
     userMessage += `\n\nLANGUAGE & VOICE INTRO REQUIREMENT:
-- Detect the language of the traveler's prompt. If the prompt is written in Bengali / বাংলা, Hindi / हिन्दी, Urdu / اردو, Spanish, etc., you MUST write the entire itinerary ("destinationIntro", "summary", "title", themes, activity descriptions, hidden gems) naturally and beautifully in that exact language.
-- "destinationIntro": You MUST include an evocative, atmospheric 2 to 3 line description introducing this destination in the user's language. This will be spoken aloud to the traveler automatically.
-- "language": State the language name used (e.g. "Bengali", "Hindi", "English").`;
+- DEFAULT OUTPUT LANGUAGE: ENGLISH.
+- Unless the user prompt was written in a non-English script or explicit language requested, generate the entire itinerary in English.
+- The output language for this itinerary MUST be: ${targetLanguage}.
+- Write all titles, summaries, "destinationIntro", themes, activity descriptions, hidden gems, and insider tips naturally in ${targetLanguage}.
+- "destinationIntro": Provide an evocative, atmospheric 2 to 3 line description introducing this destination in ${targetLanguage}. This will be spoken aloud to the traveler automatically.
+- "language": "${targetLanguage}".`;
 
     if (options?.travelersCount && options.travelersCount > 0) {
       userMessage += `\n\nTRAVEL PARTY: ${options.travelersCount} traveler(s). Calculate the budget for this party size: totalLow & totalHigh must be the full total for all ${options.travelersCount} travelers combined, and perPersonTotal & perPersonPerDay must be the individual per-person amount.`;
-    }
-    if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
-      userMessage += `\n\nEXPLICIT LANGUAGE PREFERENCE: Please generate all itinerary descriptions, "destinationIntro", titles, summaries, themes, vibes, notes, and insider tips naturally in ${options.language}. Keep canonical landmark placeNames recognizable.`;
     }
     if (attachmentText) {
       userMessage += `\n\nATTACHED TRAVEL TICKETS / RESERVATIONS / BOOKINGS:\n"""\n${attachmentText}\n"""\nIMPORTANT: Align the destination, dates, times, and activities with the attached ticket/reservation details above.`;
@@ -174,15 +193,8 @@ export class GeminiProvider implements AIProvider {
       parsed.destinationIntro = parsed.summary;
     }
 
-    // Detect language if not provided by model
-    if (!parsed.language) {
-      const sampleText = `${prompt} ${parsed.summary || ''} ${parsed.destinationIntro || ''}`;
-      if (/[\u0980-\u09FF]/.test(sampleText)) parsed.language = 'Bengali';
-      else if (/[\u0900-\u097F]/.test(sampleText)) parsed.language = 'Hindi';
-      else if (/[\u0600-\u06FF]/.test(sampleText)) parsed.language = 'Urdu';
-      else if (options?.language && options.language !== 'Auto') parsed.language = options.language;
-      else parsed.language = 'English';
-    }
+    // Assign canonical resolved language
+    parsed.language = targetLanguage;
 
     return parsed;
   }
@@ -205,19 +217,137 @@ export class GeminiProvider implements AIProvider {
   }
 
   async translateItinerary(itinerary: TripItinerary, language: string = 'English'): Promise<TripItinerary> {
-    const prompt = `Translate all descriptive strings, titles, themes, summaries, descriptions, and insider tips in this travel itinerary JSON into ${language}. Keep the place names, landmark names, numbers, day numbers, and JSON structure identical.\n\nITINERARY_JSON:\n${JSON.stringify(itinerary)}`;
+    // Extract only core human-readable strings to avoid massive token payload and schema loss
+    const translatablePayload = {
+      title: itinerary.title,
+      destinationIntro: itinerary.destinationIntro,
+      summary: itinerary.summary,
+      vibe: itinerary.vibe,
+      crowdStrategy: itinerary.crowdStrategy,
+      insiderTips: itinerary.insiderTips,
+      days: (itinerary.days || []).map(d => ({
+        dayNumber: d.dayNumber,
+        title: d.title,
+        theme: d.theme,
+        morning: d.morning ? {
+          title: d.morning.title,
+          description: d.morning.description,
+          briefDescription: d.morning.briefDescription
+        } : undefined,
+        afternoon: d.afternoon ? {
+          title: d.afternoon.title,
+          description: d.afternoon.description,
+          briefDescription: d.afternoon.briefDescription
+        } : undefined,
+        evening: d.evening ? {
+          title: d.evening.title,
+          description: d.evening.description,
+          briefDescription: d.evening.briefDescription
+        } : undefined,
+        hiddenGem: d.hiddenGem ? {
+          name: d.hiddenGem.name,
+          note: d.hiddenGem.note,
+          briefDescription: d.hiddenGem.briefDescription
+        } : undefined,
+      })),
+      curatedCafes: (itinerary.curatedCafes || []).map(c => ({
+        name: c.name,
+        specialty: c.specialty,
+        tip: c.tip,
+        vibe: c.vibe
+      })),
+      scenicHikes: (itinerary.scenicHikes || []).map(h => ({
+        name: h.name,
+        difficulty: h.difficulty,
+        viewHighlight: h.viewHighlight
+      }))
+    };
+
+    const prompt = `Translate all titles, destinationIntro, summary, themes, activity descriptions, briefDescription, hidden gem notes, tips, and cafe/hike notes in this travel plan into ${language}.
+Keep day numbers, landmark names, place names, and JSON keys identical.
+Set "language": "${language}".
+
+INPUT_JSON:
+${JSON.stringify(translatablePayload)}`;
 
     const responseText = await this.generateWithFallback(
       prompt,
       {
-        systemInstruction: `You are an ultra-fast, professional multilingual travel translator. Return ONLY a valid JSON object matching the input structure with translated text strings in ${language}. Do not change JSON keys, day numbers, times, or currencies.`,
+        systemInstruction: `You are an ultra-fast, professional multilingual travel translator. Return ONLY a valid JSON object with the exact same structure as INPUT_JSON, with all narrative descriptions, titles, and tips translated naturally and beautifully into ${language}. Do not change JSON keys, place names, or day numbers.`,
         responseMimeType: 'application/json',
         temperature: 0.1,
-        maxOutputTokens: 3500,
+        maxOutputTokens: 8192,
       }
     );
 
-    return parseJsonSafely(responseText);
+    const parsed = parseJsonSafely(responseText);
+
+    // Merge translated text back into the full original itinerary preserving all hotels, transit, and schemas
+    const translatedDays = (itinerary.days || []).map((origDay, idx) => {
+      const transDay = parsed.days?.[idx] || {};
+      return {
+        ...origDay,
+        title: transDay.title || origDay.title,
+        theme: transDay.theme || origDay.theme,
+        morning: origDay.morning ? {
+          ...origDay.morning,
+          title: transDay.morning?.title || origDay.morning.title,
+          description: transDay.morning?.description || origDay.morning.description,
+          briefDescription: transDay.morning?.briefDescription || origDay.morning.briefDescription,
+        } : origDay.morning,
+        afternoon: origDay.afternoon ? {
+          ...origDay.afternoon,
+          title: transDay.afternoon?.title || origDay.afternoon.title,
+          description: transDay.afternoon?.description || origDay.afternoon.description,
+          briefDescription: transDay.afternoon?.briefDescription || origDay.afternoon.briefDescription,
+        } : origDay.afternoon,
+        evening: origDay.evening ? {
+          ...origDay.evening,
+          title: transDay.evening?.title || origDay.evening.title,
+          description: transDay.evening?.description || origDay.evening.description,
+          briefDescription: transDay.evening?.briefDescription || origDay.evening.briefDescription,
+        } : origDay.evening,
+        hiddenGem: origDay.hiddenGem ? {
+          ...origDay.hiddenGem,
+          name: transDay.hiddenGem?.name || origDay.hiddenGem.name,
+          note: transDay.hiddenGem?.note || origDay.hiddenGem.note,
+          briefDescription: transDay.hiddenGem?.briefDescription || origDay.hiddenGem.briefDescription,
+        } : origDay.hiddenGem,
+      };
+    });
+
+    const translatedCafes = (itinerary.curatedCafes || []).map((origCafe, idx) => {
+      const transCafe = parsed.curatedCafes?.[idx] || {};
+      return {
+        ...origCafe,
+        specialty: transCafe.specialty || origCafe.specialty,
+        tip: transCafe.tip || origCafe.tip,
+        vibe: transCafe.vibe || origCafe.vibe,
+      };
+    });
+
+    const translatedHikes = (itinerary.scenicHikes || []).map((origHike, idx) => {
+      const transHike = parsed.scenicHikes?.[idx] || {};
+      return {
+        ...origHike,
+        difficulty: transHike.difficulty || origHike.difficulty,
+        viewHighlight: transHike.viewHighlight || origHike.viewHighlight,
+      };
+    });
+
+    return {
+      ...itinerary,
+      title: parsed.title || itinerary.title,
+      destinationIntro: parsed.destinationIntro || itinerary.destinationIntro,
+      summary: parsed.summary || itinerary.summary,
+      vibe: parsed.vibe || itinerary.vibe,
+      crowdStrategy: parsed.crowdStrategy || itinerary.crowdStrategy,
+      insiderTips: parsed.insiderTips || itinerary.insiderTips,
+      days: translatedDays,
+      curatedCafes: translatedCafes,
+      scenicHikes: translatedHikes,
+      language: language
+    };
   }
 
   async extractText(base64Data: string, mimeType: string): Promise<string> {

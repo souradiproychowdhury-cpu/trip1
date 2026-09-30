@@ -35,16 +35,35 @@ export class OpenAIProvider implements AIProvider {
 - The traveler explicitly wants a ${requestedDays}-day trip ("duration": "${requestedDays} Days").
 - You MUST generate EXACTLY ${requestedDays} distinct day objects in the "days" array: Day 1, Day 2${requestedDays >= 3 ? `, ... up to Day ${requestedDays}` : ''}.
 - The "days" array MUST contain exactly ${requestedDays} items (length ${requestedDays}). NEVER output only 1 day when the prompt requests ${requestedDays} days!`;
+    // Determine target output language: Default to English unless prompt has non-Latin script or explicit language was chosen
+    const hasBengali = /[\u0980-\u09FF]/.test(prompt);
+    const hasHindi = /[\u0900-\u097F]/.test(prompt);
+    const hasUrdu = /[\u0600-\u06FF]/.test(prompt);
+    const hasJapanese = /[\u3040-\u30FF\u4E00-\u9FAF]/.test(prompt);
+
+    let targetLanguage = 'English';
+    if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
+      targetLanguage = options.language;
+    } else if (hasBengali) {
+      targetLanguage = 'Bengali';
+    } else if (hasHindi) {
+      targetLanguage = 'Hindi';
+    } else if (hasUrdu) {
+      targetLanguage = 'Urdu';
+    } else if (hasJapanese) {
+      targetLanguage = 'Japanese';
+    }
+
     userMessage += `\n\nLANGUAGE & VOICE INTRO REQUIREMENT:
-- Detect the language of the traveler's prompt. If the prompt is written in Bengali / বাংলা, Hindi / हिन्दी, Urdu / اردو, Spanish, etc., you MUST write the entire itinerary ("destinationIntro", "summary", "title", themes, activity descriptions, hidden gems) naturally and beautifully in that exact language.
-- "destinationIntro": You MUST include an evocative, atmospheric 2 to 3 line description introducing this destination in the user's language. This will be spoken aloud to the traveler automatically.
-- "language": State the language name used (e.g. "Bengali", "Hindi", "English").`;
+- DEFAULT OUTPUT LANGUAGE: ENGLISH.
+- Unless the user prompt was written in a non-English script or explicit language requested, generate the entire itinerary in English.
+- The output language for this itinerary MUST be: ${targetLanguage}.
+- Write all titles, summaries, "destinationIntro", themes, activity descriptions, hidden gems, and insider tips naturally in ${targetLanguage}.
+- "destinationIntro": Provide an evocative, atmospheric 2 to 3 line description introducing this destination in ${targetLanguage}.
+- "language": "${targetLanguage}".`;
 
     if (options?.travelersCount && options.travelersCount > 0) {
       userMessage += `\n\nTRAVEL PARTY: ${options.travelersCount} traveler(s). Calculate the budget for this party size: totalLow & totalHigh must be the full total for all ${options.travelersCount} travelers combined, and perPersonTotal & perPersonPerDay must be the individual per-person amount.`;
-    }
-    if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
-      userMessage += `\n\nEXPLICIT LANGUAGE PREFERENCE: Please generate all itinerary descriptions, "destinationIntro", titles, summaries, themes, vibes, notes, and insider tips naturally in ${options.language}. Keep canonical landmark placeNames recognizable.`;
     }
     if (attachmentText) {
       userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;
@@ -80,14 +99,8 @@ export class OpenAIProvider implements AIProvider {
       parsed.destinationIntro = parsed.summary;
     }
 
-    if (!parsed.language) {
-      const sampleText = `${prompt} ${parsed.summary || ''} ${parsed.destinationIntro || ''}`;
-      if (/[\u0980-\u09FF]/.test(sampleText)) parsed.language = 'Bengali';
-      else if (/[\u0900-\u097F]/.test(sampleText)) parsed.language = 'Hindi';
-      else if (/[\u0600-\u06FF]/.test(sampleText)) parsed.language = 'Urdu';
-      else if (options?.language && options.language !== 'Auto') parsed.language = options.language;
-      else parsed.language = 'English';
-    }
+    // Assign canonical resolved language
+    parsed.language = targetLanguage;
     return parsed;
   }
 

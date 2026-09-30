@@ -21,18 +21,18 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
 ];
 
 export function detectLanguageOption(text: string = '', preferredLang?: string): LanguageOption {
-  // If explicitly specified and not auto/english default when text is clearly non-latin
+  // 1. If explicitly specified and valid, prioritize it directly
   if (preferredLang && preferredLang !== 'Auto') {
     const found = SUPPORTED_LANGUAGES.find(
       l => l.name.toLowerCase() === preferredLang.toLowerCase() ||
            l.code.toLowerCase() === preferredLang.toLowerCase()
     );
-    if (found && !/[\u0980-\u09FF\u0900-\u097F]/.test(text)) {
+    if (found) {
       return found;
     }
   }
 
-  // Bengali Unicode range: 0980-09FF
+  // 2. Bengali Unicode range: 0980-09FF
   if (/[\u0980-\u09FF]/.test(text)) {
     return SUPPORTED_LANGUAGES.find(l => l.code === 'Bengali') || SUPPORTED_LANGUAGES[1];
   }
@@ -57,13 +57,8 @@ export function detectLanguageOption(text: string = '', preferredLang?: string):
   if (/[äöüß]/i.test(text)) {
     return SUPPORTED_LANGUAGES.find(l => l.code === 'German') || SUPPORTED_LANGUAGES[5];
   }
-
-  if (preferredLang) {
-    const match = SUPPORTED_LANGUAGES.find(
-      l => l.name.toLowerCase() === preferredLang.toLowerCase() ||
-           l.code.toLowerCase() === preferredLang.toLowerCase()
-    );
-    if (match) return match;
+  if (/[àèéìíîòóùú]/i.test(text)) {
+    return SUPPORTED_LANGUAGES.find(l => l.code === 'Italian') || SUPPORTED_LANGUAGES[7];
   }
 
   return SUPPORTED_LANGUAGES[0]; // English

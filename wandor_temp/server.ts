@@ -926,7 +926,7 @@ app.post(["/api/translate-itinerary", "/translate-itinerary"], aiLimiter, async 
     return res.status(400).json({ error: 'An itinerary object is required for translation.' });
   }
 
-  if (language.toLowerCase() === 'english') {
+  if (language.toLowerCase() === 'english' && (!itinerary.language || itinerary.language.toLowerCase() === 'english')) {
     return res.json({ success: true, itinerary, language });
   }
 
@@ -937,6 +937,8 @@ app.post(["/api/translate-itinerary", "/translate-itinerary"], aiLimiter, async 
 
   try {
     const translatedItinerary = await translateItinerary(itinerary, language, clientKey);
+    translatedItinerary.id = itinerary.id;
+    translatedItinerary.language = language;
     translationCache.set(cacheKey, translatedItinerary);
     return res.json({ success: true, itinerary: translatedItinerary, language });
   } catch (err: any) {

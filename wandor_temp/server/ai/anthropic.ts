@@ -27,12 +27,28 @@ export class AnthropicProvider implements AIProvider {
   ): Promise<TripItinerary> {
     if (!this.client) throw new Error('Anthropic not configured');
 
+    const hasBengali = /[\u0980-\u09FF]/.test(prompt);
+    const hasHindi = /[\u0900-\u097F]/.test(prompt);
+    const hasUrdu = /[\u0600-\u06FF]/.test(prompt);
+    const hasJapanese = /[\u3040-\u30FF\u4E00-\u9FAF]/.test(prompt);
+
+    let targetLanguage = 'English';
+    if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
+      targetLanguage = options.language;
+    } else if (hasBengali) {
+      targetLanguage = 'Bengali';
+    } else if (hasHindi) {
+      targetLanguage = 'Hindi';
+    } else if (hasUrdu) {
+      targetLanguage = 'Urdu';
+    } else if (hasJapanese) {
+      targetLanguage = 'Japanese';
+    }
+
     let userMessage = `Create a complete travel itinerary based on this traveler prompt: "${prompt}"`;
+    userMessage += `\n\nLANGUAGE INSTRUCTION: Default to English. Write all itinerary text in ${targetLanguage}. "language": "${targetLanguage}".`;
     if (options?.travelersCount && options.travelersCount > 0) {
       userMessage += `\n\nTRAVEL PARTY: ${options.travelersCount} traveler(s). Calculate the budget for this party size: totalLow & totalHigh must be the full total for all ${options.travelersCount} travelers combined, and perPersonTotal & perPersonPerDay must be the individual per-person amount.`;
-    }
-    if (options?.language && options.language !== 'Auto' && options.language !== 'English') {
-      userMessage += `\n\nLANGUAGE PREFERENCE: Please generate all itinerary descriptions, titles, summaries, themes, vibes, notes, and insider tips naturally in ${options.language}. Keep canonical landmark placeNames recognizable.`;
     }
     if (attachmentText) {
       userMessage += `\nAdditional context / attached notes: "${attachmentText}"`;

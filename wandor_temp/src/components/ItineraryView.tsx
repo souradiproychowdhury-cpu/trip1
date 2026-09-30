@@ -22,7 +22,10 @@ import {
   User,
   Plus,
   Minus,
-  Calculator
+  Calculator,
+  Globe,
+  Loader2,
+  Check
 } from 'lucide-react';
 import { TripItinerary, DayPlan } from '../types';
 import { LocationImage } from './LocationImage';
@@ -53,21 +56,29 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [refineText, setRefineText] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceDetailData | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState('English');
+  const [selectedLanguage, setSelectedLanguage] = useState(itinerary.language || 'English');
   const [isTranslating, setIsTranslating] = useState(false);
+  const [translatingLanguage, setTranslatingLanguage] = useState<string | null>(null);
+  const [translationFeedback, setTranslationFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const { formatRange } = useCurrency();
 
   const [budgetTravelers, setBudgetTravelers] = useState<number>(() => itinerary.budgetEstimate?.travelersCount || 1);
   const [budgetViewMode, setBudgetViewMode] = useState<'both' | 'group' | 'perPerson'>('both');
 
+  // Baseline pristine itinerary to always translate from (prevents compounding loss)
+  const baseItineraryRef = useRef<TripItinerary>(itinerary);
+
   // Instant client-side translation cache
   const translationCache = useRef<Record<string, TripItinerary>>({
-    English: itinerary
+    [itinerary.language || 'English']: itinerary
   });
 
   useEffect(() => {
     setCurrentItinerary(itinerary);
-    translationCache.current = { English: itinerary };
+    baseItineraryRef.current = itinerary;
+    const initialLang = itinerary.language || 'English';
+    translationCache.current = { [initialLang]: itinerary };
+    setSelectedLanguage(initialLang);
     if (itinerary.budgetEstimate?.travelersCount) {
       setBudgetTravelers(itinerary.budgetEstimate.travelersCount);
     }
@@ -86,43 +97,68 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
 
   const handleTranslate = async (langToUse?: string) => {
     const targetLang = langToUse || selectedLanguage;
-    if (!currentItinerary || !targetLang) return;
+    if (!currentItinerary || !targetLang || isTranslating) return;
 
     if (translationCache.current[targetLang]) {
       // 0ms instant switch from client cache
       setCurrentItinerary(translationCache.current[targetLang]);
+      setSelectedLanguage(targetLang);
+      setTranslationFeedback({ type: 'success', message: `Switched to ${targetLang}` });
+      setTimeout(() => setTranslationFeedback(null), 2500);
       return;
     }
 
     setIsTranslating(true);
+    setTranslatingLanguage(targetLang);
+    setTranslationFeedback(null);
     try {
+      // Always translate from base English/pristine itinerary for highest quality
+      const sourceItinerary = translationCache.current['English'] || baseItineraryRef.current || currentItinerary;
+
       const response = await fetch('/api/translate-itinerary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itinerary: currentItinerary, language: targetLang })
+        body: JSON.stringify({ itinerary: sourceItinerary, language: targetLang })
       });
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Translation failed');
       }
 
       const data = await response.json();
       if (data.success && data.itinerary) {
-        translationCache.current[targetLang] = data.itinerary;
-        setCurrentItinerary(data.itinerary);
+        const translatedWithMeta = {
+          ...data.itinerary,
+          language: targetLang
+        };
+        translationCache.current[targetLang] = translatedWithMeta;
+        setCurrentItinerary(translatedWithMeta);
+        setSelectedLanguage(targetLang);
+        setTranslationFeedback({ type: 'success', message: `Itinerary translated to ${targetLang}!` });
+        setTimeout(() => setTranslationFeedback(null), 3000);
+      } else {
+        throw new Error(data.error || 'Could not parse translated itinerary');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Translation failed:', err);
+      // Revert select dropdown to whatever language is actually displayed
+      setSelectedLanguage(currentItinerary.language || 'English');
+      setTranslationFeedback({ type: 'error', message: `Could not translate into ${targetLang}. Please try again.` });
+      setTimeout(() => setTranslationFeedback(null), 4000);
     } finally {
       setIsTranslating(false);
+      setTranslatingLanguage(null);
     }
   };
 
   const handleLanguageChange = (newLang: string) => {
+    if (isTranslating) return;
     setSelectedLanguage(newLang);
     if (translationCache.current[newLang]) {
       setCurrentItinerary(translationCache.current[newLang]);
+      setTranslationFeedback({ type: 'success', message: `Switched to ${newLang}` });
+      setTimeout(() => setTranslationFeedback(null), 2000);
     } else {
       handleTranslate(newLang);
     }
@@ -228,12 +264,13 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
             initialLanguage={currentItinerary.language || selectedLanguage}
           />
 
-          <div className="flex items-center gap-2 rounded-full bg-white/80 border border-stone-300 px-2 py-1">
-            <label className="sr-only">Language</label>
+          <div className="flex items-center gap-1.5 rounded-full bg-white/90 border border-stone-300 px-2.5 py-1 shadow-2xs">
+            <Globe className="w-3.5 h-3.5 text-stone-500 shrink-0" />
             <select
               value={selectedLanguage}
               onChange={(e) => handleLanguageChange(e.target.value)}
-              className="bg-transparent text-xs text-stone-800 font-semibold outline-none cursor-pointer"
+              disabled={isTranslating}
+              className="bg-transparent text-xs text-stone-800 font-semibold outline-none cursor-pointer disabled:opacity-50"
               aria-label="Translate itinerary language"
             >
               {translationLanguages.map((lang) => (
@@ -244,9 +281,16 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
               type="button"
               onClick={() => handleTranslate()}
               disabled={isTranslating}
-              className="inline-flex items-center gap-1 rounded-full bg-stone-900 text-white px-3 py-1.5 text-[11px] font-bold hover:bg-stone-700 disabled:opacity-60 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 text-white px-3 py-1.5 text-[11px] font-bold hover:bg-stone-700 disabled:opacity-75 transition-all cursor-pointer"
             >
-              {isTranslating ? '...' : 'Translate'}
+              {isTranslating ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-amber-300" />
+                  <span>Translating...</span>
+                </>
+              ) : (
+                <span>Translate</span>
+              )}
             </button>
           </div>
 
@@ -267,6 +311,36 @@ const ItineraryContent: React.FC<ItineraryViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Translation in progress or feedback notification banner */}
+      {isTranslating && (
+        <div className="mt-4 flex items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-300/80 text-amber-950 text-xs font-medium animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-amber-700 shrink-0" />
+            <span>
+              Translating full itinerary, sightseeing descriptions, and voice guide into <strong>{translatingLanguage}</strong>...
+            </span>
+          </div>
+          <span className="text-[10px] text-amber-800 uppercase tracking-wider font-bold shrink-0">
+            AI Translation
+          </span>
+        </div>
+      )}
+
+      {translationFeedback && !isTranslating && (
+        <div className={`mt-4 flex items-center gap-2 p-3 rounded-xl text-xs font-semibold animate-in fade-in duration-200 ${
+          translationFeedback.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+            : 'bg-rose-50 border border-rose-200 text-rose-900'
+        }`}>
+          {translationFeedback.type === 'success' ? (
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+          ) : (
+            <ShieldCheck className="w-4 h-4 text-rose-600 shrink-0" />
+          )}
+          <span>{translationFeedback.message}</span>
+        </div>
+      )}
 
       {/* Header Banner */}
       <div className="mt-8">

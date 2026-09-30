@@ -2,9 +2,28 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Sparkles, X, Check, Compass, ArrowRight, MapPin, Mic, MicOff, Users, User, Plus, Minus, Globe, Volume2 } from 'lucide-react';
 import { WorldLandmarksPanorama } from './WorldLandmarksPanorama';
 import { VintagePencilClouds } from './VintagePencilClouds';
+import { VoiceTravelAgentCard } from './VoiceTravelAgentCard';
 
-// Multilingual prompt presets with party sizes
+// Multilingual prompt presets with party sizes (English default)
 const PROMPT_PRESETS: Array<{ label: string; prompt: string; travelers: number; lang?: string }> = [
+  {
+    label: "🏖️ 3 Days in Goa (Couple)",
+    prompt: "A relaxing and peaceful 3-day trip to Goa for 2 people. Scenic beaches, quiet local cafes, sunset spots, and avoiding crowded tourist areas.",
+    travelers: 2,
+    lang: "English"
+  },
+  {
+    label: "🇯🇵 7-Day Japan (Solo)",
+    prompt: "I'm planning a 7-day solo trip to Japan in October. I love food, hidden cafés, scenic hikes, and want to avoid crowds.",
+    travelers: 1,
+    lang: "English"
+  },
+  {
+    label: "🇮🇹 Slow Tuscany (Couple)",
+    prompt: "Looking for a 10-day slow travel itinerary in Tuscany for 2 people, focusing on wine tasting, cooking classes, and small villages.",
+    travelers: 2,
+    lang: "English"
+  },
   {
     label: "🇧🇩 ৩ জনের ৩ দিনের গোয়া",
     prompt: "৩ জনের জন্য ৩ দিনের আরামদায়ক ও শান্ত গোয়া ভ্রমণ পরিকল্পনা চাই। সুন্দর বিচ, লোকাল ক্যাফে ও কম ভিড়ের স্পট চাই।",
@@ -18,37 +37,25 @@ const PROMPT_PRESETS: Array<{ label: string; prompt: string; travelers: number; 
     lang: "Hindi"
   },
   {
-    label: "🇯🇵 7-Day Japan (Solo)",
-    prompt: "I'm planning a 7-day solo trip to Japan in October. I love food, hidden cafés, scenic hikes, and want to avoid crowds.",
-    travelers: 1,
-    lang: "English"
-  },
-  {
     label: "🇪🇸 Barcelona para 2",
     prompt: "Planifica un viaje de 5 días a Barcelona para 2 personas, enfocado en arte, cafés escondidos y paseos sin multitudes.",
     travelers: 2,
     lang: "Spanish"
-  },
-  {
-    label: "🇮🇹 Slow Tuscany (Couple)",
-    prompt: "Looking for a 10-day slow travel itinerary in Tuscany for 2 people, focusing on wine tasting, cooking classes, and small villages.",
-    travelers: 2,
-    lang: "English"
   }
 ];
 
-// Language mapping for Web Speech API and Gemini
+// Language mapping for Web Speech API and Gemini (English first)
 const LANGUAGE_OPTIONS = [
-  { code: 'Auto', label: '🌐 Any Language / যেকোনো ভাষা / कोई भी भाषा', speechLang: 'en-US' },
+  { code: 'English', label: '🇬🇧 English (Default)', speechLang: 'en-US' },
+  { code: 'Auto', label: '🌐 Auto-detect Language', speechLang: 'en-US' },
   { code: 'Bengali', label: '🇧🇩 বাংলা (Bengali)', speechLang: 'bn-IN' },
   { code: 'Hindi', label: '🇮🇳 हिन्दी (Hindi)', speechLang: 'hi-IN' },
   { code: 'Urdu', label: '🇵🇰 اردو (Urdu)', speechLang: 'ur-PK' },
   { code: 'Spanish', label: '🇪🇸 Español (Spanish)', speechLang: 'es-ES' },
-  { code: 'English', label: '🇬🇧 English', speechLang: 'en-US' },
   { code: 'French', label: '🇫🇷 Français', speechLang: 'fr-FR' },
   { code: 'German', label: '🇩🇪 Deutsch', speechLang: 'de-DE' },
   { code: 'Italian', label: '🇮🇹 Italiano', speechLang: 'it-IT' },
-  { code: 'Japanese', label: '🇯🇵 日本語', speechLang: 'ja-JP' },
+  { code: 'Japanese', label: '🇯🇵 日本語 (Japanese)', speechLang: 'ja-JP' },
 ];
 
 interface HeroSectionProps {
@@ -76,11 +83,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   onRemoveAttachment,
   travelersCount = 3,
   setTravelersCount,
-  selectedLanguage = 'Auto',
+  selectedLanguage = 'English',
   setSelectedLanguage,
   onPlayWelcomeGreeting
 }) => {
-  const [activePresetIndex, setActivePresetIndex] = useState<number>(0);
+  const [activePresetIndex, setActivePresetIndex] = useState<number>(-1);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [voiceSupported, setVoiceSupported] = useState<boolean>(true);
   const recognitionRef = useRef<any>(null);
@@ -181,7 +188,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
       <VintagePencilClouds />
 
       {/* Main Content Area */}
-      <div className="relative z-10 w-full max-w-4xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 md:pt-14 text-center flex-1">
+      <div className="relative z-10 w-full max-w-6xl mx-auto px-4 sm:px-6 pt-6 sm:pt-10 md:pt-12 text-center flex-1">
         {/* Welcome Voice Greeting Header Banner: English, Hindi, Bengali */}
         <div className="mb-4 inline-flex items-center gap-2 sm:gap-3 px-3.5 sm:px-4 py-1.5 rounded-full bg-white/85 border border-stone-200/80 shadow-xs backdrop-blur-md">
           <span className="text-xs font-semibold text-stone-900 tracking-wide flex items-center gap-1.5">
@@ -214,9 +221,13 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           Live AI budgeting calculated per-person & for your entire travel group.
         </p>
 
-        {/* The Central AI Prompt Box Card with Side-wise People & Language Controls */}
-        <div className="mt-5 sm:mt-8 max-w-2xl mx-auto">
-          <div className={`wandor-card rounded-[24px] sm:rounded-[32px] p-4 sm:p-6 text-left transition-all duration-300 ${isListening ? 'ring-2 ring-amber-500 shadow-lg' : ''}`}>
+        {/* The Search & Voice Travel Consultant Side-by-Side Area */}
+        <div className="mt-5 sm:mt-8 max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+            
+            {/* LEFT / MAIN: Central AI Search & Trip Planner Card (lg:col-span-7) */}
+            <div className="lg:col-span-7 flex flex-col justify-between">
+              <div className={`wandor-card rounded-[24px] sm:rounded-[32px] p-4 sm:p-6 text-left transition-all duration-300 flex-1 flex flex-col justify-between ${isListening ? 'ring-2 ring-amber-500 shadow-lg' : ''}`}>
             
             {/* Top Bar: Side-wise Section for Travelers & Language Selector */}
             <div className="mb-3.5 pb-3 border-b border-stone-200/70 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -322,7 +333,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                     ? "अपनी ट्रिप बताएं — जैसे: 3 लोगों के लिए 3 दिन का गोवा टूर, सुंदर बीच और शांत जगहें..."
                     : selectedLanguage === 'Spanish'
                     ? "Escribe tu viaje — ej: 3 días en Goa para 3 personas, playas tranquilas y cafés locales..."
-                    : "Tell us where to go, how many days, and interests in ANY language (বাংলা, हिन्दी, Urdu, Spanish, English)..."
+                    : "Tell us where to go, how many days, and interests (e.g. 3 days in Goa for 2 people, quiet cafes & beaches)..."
                 }
                 className="w-full h-full resize-none bg-transparent border-0 focus:outline-none focus:ring-0 text-stone-800 placeholder:text-stone-400 text-sm sm:text-[16px] leading-[1.65] font-normal"
               />
@@ -418,7 +429,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           </div>
 
           {/* Quick Prompt Ideas / Inspiration Chips */}
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-left">
+          <div className="mt-4 flex flex-wrap items-center justify-center lg:justify-start gap-2 text-left">
             <span className="text-[11px] font-medium tracking-wide uppercase text-stone-500 mr-1">
               Try:
             </span>
@@ -438,7 +449,27 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             ))}
           </div>
         </div>
+
+        {/* RIGHT: Live ElevenLabs Conversational Voice Suggestion Agent (lg:col-span-5) */}
+        <div className="lg:col-span-5 flex flex-col">
+          <VoiceTravelAgentCard
+            onApplySuggestion={(text) => {
+              setPrompt(text);
+              // Auto-detect traveler count if mentioned in speech suggestion
+              const match = text.match(/(\d+)\s*(?:people|persons|person|জন|লোক|যাত্রী|लोग|personas)/i);
+              if (match && setTravelersCount) {
+                setTravelersCount(parseInt(match[1], 10));
+              }
+            }}
+            currentPrompt={prompt}
+            travelersCount={travelersCount}
+            selectedLanguage={selectedLanguage}
+          />
+        </div>
+
       </div>
+    </div>
+  </div>
 
       {/* Panorama of World Wonders across the bottom matching reference image */}
       <div className="relative z-10 w-full mt-6 sm:mt-10 lg:mt-12">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ScrollBackground } from './components/ScrollBackground';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
@@ -12,7 +12,6 @@ import { SettingsModal } from './components/SettingsModal';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 // Removed mockData import
 import { TripItinerary, DiscoverTrip } from './types';
-import { useEffect } from 'react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'hero' | 'discover' | 'faqs' | 'itinerary' | 'my-trips'>('hero');
@@ -27,11 +26,11 @@ export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [travelersCount, setTravelersCount] = useState<number>(3);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('Auto');
+  const [travelersCount, setTravelersCount] = useState<number>(2);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('English');
+  const activeGreetingsRef = useRef<SpeechSynthesisUtterance[]>([]);
 
-  // Welcome voice greeting when the app opens in English, Hindi, and Bengali:
-  // "Welcome to Wandor! नमस्कार! वांडोर में आपका स्वागत है। নমস্কার! ওয়ান্ডরে আপনাকে স্বাগতম।"
+  // Welcome voice greeting when the app opens: English -> Hindi -> Bengali
   const playWelcomeGreeting = (force: boolean = false) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     if (!force && sessionStorage.getItem('wandor_welcomed_tts')) return;
@@ -43,42 +42,49 @@ export default function App() {
       const voices = window.speechSynthesis.getVoices();
 
       // 1. English Utterance
-      const uttEn = new SpeechSynthesisUtterance("Welcome to Wandor! Plan your trip in any language.");
+      const uttEn = new SpeechSynthesisUtterance("Welcome to Wandor! Plan your trip with our AI voice and travel consultant.");
       uttEn.lang = 'en-US';
       uttEn.rate = 1.0;
-      const enVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Zira')));
+      const enVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Zira') || v.name.includes('David')));
       if (enVoice) uttEn.voice = enVoice;
 
       // 2. Hindi Utterance ("नमस्कार! वांडोर में आपका स्वागत है।")
       const uttHi = new SpeechSynthesisUtterance("नमस्कार! वांडोर में आपका स्वागत है।");
       uttHi.lang = 'hi-IN';
       uttHi.rate = 0.95;
-      const hiVoice = voices.find(v => v.lang.startsWith('hi'));
+      const hiVoice = voices.find(v => v.lang.startsWith('hi') || v.lang.includes('hi_IN') || v.lang.includes('hi-IN'));
       if (hiVoice) uttHi.voice = hiVoice;
 
       // 3. Bengali Utterance ("নমস্কার! ওয়ান্ডরে আপনাকে স্বাগতম।")
       const uttBn = new SpeechSynthesisUtterance("নমস্কার! ওয়ান্ডরে আপনাকে স্বাগতম।");
       uttBn.lang = 'bn-IN';
       uttBn.rate = 0.95;
-      const bnVoice = voices.find(v => v.lang.startsWith('bn'));
+      const bnVoice = voices.find(v => v.lang.startsWith('bn') || v.lang.includes('bn_IN') || v.lang.includes('bn-IN') || v.lang.includes('bn_BD'));
       if (bnVoice) uttBn.voice = bnVoice;
+
+      // Prevent garbage collection mid-speech in Chromium
+      activeGreetingsRef.current = [uttEn, uttHi, uttBn];
 
       uttEn.onstart = () => {
         sessionStorage.setItem('wandor_welcomed_tts', 'true');
       };
 
-      // Play sequentially with robust error fallback
       uttEn.onend = () => {
         try { window.speechSynthesis.speak(uttHi); } catch {}
       };
       uttEn.onerror = () => {
         try { window.speechSynthesis.speak(uttHi); } catch {}
       };
+
       uttHi.onend = () => {
         try { window.speechSynthesis.speak(uttBn); } catch {}
       };
       uttHi.onerror = () => {
         try { window.speechSynthesis.speak(uttBn); } catch {}
+      };
+
+      uttBn.onend = () => {
+        activeGreetingsRef.current = [];
       };
 
       window.speechSynthesis.speak(uttEn);
@@ -88,7 +94,16 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Ensure viewport always opens at the top
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
 
     // 1. Try immediate greeting after page settle
     const timer = setTimeout(() => {
