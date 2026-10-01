@@ -1,25 +1,22 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useConversation, ConversationProvider } from '@elevenlabs/react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import Vapi from '@vapi-ai/web';
 import {
   Mic,
   MicOff,
   PhoneCall,
   PhoneOff,
   Volume2,
-  VolumeX,
   Sparkles,
-  Radio,
-  Compass,
   ArrowRight,
   RotateCcw,
   Bot,
-  Copy,
   Check,
   Headphones,
   SlidersHorizontal,
-  ChevronDown,
-  ChevronUp,
-  AlertCircle
+  AlertCircle,
+  KeyRound,
+  Send,
+  Loader2
 } from 'lucide-react';
 
 interface VoiceTravelAgentCardProps {
@@ -36,7 +33,9 @@ interface MessageItem {
   timestamp: string;
 }
 
-const AGENT_ID = 'agent_6201m3s9th5te47btvj2xp97ssjy';
+// User's active Vapi Assistant configuration
+const DEFAULT_ASSISTANT_ID = 'e0f0e7a0-76c2-4c40-959c-9ac97d8fbef7';
+const DEFAULT_PUBLIC_KEY = '2aad0218-c70f-42d5-859b-2690647a5db3';
 
 const SUGGESTION_STARTERS = [
   'Where should I go for a relaxing weekend?',
@@ -45,139 +44,202 @@ const SUGGESTION_STARTERS = [
   'Family-friendly adventure with kids'
 ];
 
-const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
+export const VoiceTravelAgentCard: React.FC<VoiceTravelAgentCardProps> = ({
   onApplySuggestion,
-  currentPrompt,
-  travelersCount = 2,
-  selectedLanguage = 'Auto'
+  selectedLanguage = 'English'
 }) => {
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [connectionType, setConnectionType] = useState<'webrtc' | 'websocket'>('webrtc');
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [volume, setVolumeState] = useState<number>(0.8);
+  const [volume, setVolumeState] = useState<number>(0.9);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState<boolean>(false);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const transcriptContainerRef = useRef<HTMLDivElement>(null);
+  const [textInput, setTextInput] = useState<string>('');
 
-  const conversation = useConversation({
-    onConnect: () => {
-      console.log('Connected to ElevenLabs Voice Agent');
-      setErrorMessage(null);
-      setIsStarting(false);
-      // Add welcome message if empty
-      setMessages(prev => {
-        if (prev.length === 0) {
-          return [
-            {
-              id: 'welcome-' + Date.now(),
-              sender: 'agent',
-              text: "Hello! I'm your Travel Agency AI. Ask me for recommendations or where you'd like to travel!",
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }
-          ];
-        }
-        return prev;
-      });
-    },
-    onDisconnect: () => {
-      console.log('Disconnected from ElevenLabs Voice Agent');
-      setIsStarting(false);
-    },
-    onMessage: (payload: any) => {
-      console.log('ElevenLabs message payload:', payload);
-      const text = payload?.message || payload?.text || payload?.agent_response || payload?.user_transcript;
-      if (!text || typeof text !== 'string') return;
-
-      const isAgent = payload.source === 'ai' || payload.role === 'agent' || payload.agent_response;
-      const isUser = payload.source === 'user' || payload.role === 'user' || payload.user_transcript;
-
-      setMessages(prev => [
-        ...prev,
-        {
-          id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-          sender: isUser ? 'user' : 'agent',
-          text: text.trim(),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
-    },
-    onError: (err: any) => {
-      console.error('ElevenLabs Voice Agent Error:', err);
-      setIsStarting(false);
-      const msg = typeof err === 'string' ? err : err?.message || 'Voice connection issue. Please check mic permissions.';
-      setErrorMessage(msg);
-    },
-    onModeChange: (mode: any) => {
-      console.log('ElevenLabs mode change:', mode);
-    },
-    clientTools: {
-      fillTripSearch: async (args: any) => {
-        console.log('Agent called client tool fillTripSearch:', args);
-        const query = typeof args === 'string' ? args : args?.destination || args?.query || JSON.stringify(args);
-        if (query && onApplySuggestion) {
-          onApplySuggestion(query);
-          return `Applied "${query}" to trip search box!`;
-        }
-        return 'Ready';
-      }
+  // Assistant ID & Public Key with localStorage persistence
+  const [assistantId, setAssistantId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        localStorage.getItem('wandor_vapi_assistant_id') ||
+        (import.meta.env.VITE_VAPI_ASSISTANT_ID as string) ||
+        DEFAULT_ASSISTANT_ID
+      );
     }
+    return DEFAULT_ASSISTANT_ID;
   });
 
-  // Auto-scroll transcript container to bottom without affecting page scroll
+  const [publicKey, setPublicKey] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        localStorage.getItem('wandor_vapi_public_key') ||
+        (import.meta.env.VITE_VAPI_PUBLIC_KEY as string) ||
+        DEFAULT_PUBLIC_KEY
+      );
+    }
+    return DEFAULT_PUBLIC_KEY;
+  });
+
+  const [inputAssistantId, setInputAssistantId] = useState<string>(assistantId);
+  const [inputPublicKey, setInputPublicKey] = useState<string>(publicKey);
+
+  const transcriptContainerRef = useRef<HTMLDivElement>(null);
+  const vapiRef = useRef<Vapi | null>(null);
+
+  // Auto-scroll transcript container to bottom
   useEffect(() => {
     if (transcriptContainerRef.current) {
       transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isSpeaking]);
 
-  const isConnected = conversation.status === 'connected';
-  const isSpeaking = conversation.isSpeaking;
-  const isListening = conversation.isListening || (isConnected && !isSpeaking);
+  // Clean up Vapi on unmount
+  useEffect(() => {
+    return () => {
+      if (vapiRef.current) {
+        try {
+          vapiRef.current.stop();
+        } catch {}
+      }
+    };
+  }, []);
 
+  // Initialize or get Vapi client instance
+  const getVapiClient = useCallback(() => {
+    if (!vapiRef.current) {
+      const client = new Vapi(publicKey);
+
+      client.on('call-start', () => {
+        console.log('Vapi Call Started successfully with assistant:', assistantId);
+        setIsConnected(true);
+        setIsStarting(false);
+        setErrorMessage(null);
+        setMessages((prev) => {
+          if (prev.length === 0) {
+            return [
+              {
+                id: 'welcome-' + Date.now(),
+                sender: 'agent',
+                text: "Hi! Excited to help you plan your trip... where are you dreaming of going?",
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+            ];
+          }
+          return prev;
+        });
+      });
+
+      client.on('call-end', () => {
+        console.log('Vapi Call Ended');
+        setIsConnected(false);
+        setIsSpeaking(false);
+        setIsStarting(false);
+        setAudioLevel(0);
+      });
+
+      client.on('speech-start', () => {
+        setIsSpeaking(true);
+      });
+
+      client.on('speech-end', () => {
+        setIsSpeaking(false);
+      });
+
+      client.on('volume-level', (vol: number) => {
+        setAudioLevel(vol);
+      });
+
+      client.on('message', (message: any) => {
+        console.log('Vapi message received:', message);
+
+        if (message.type === 'transcript') {
+          const isUser = message.role === 'user';
+          const text = message.transcript;
+
+          if (message.transcriptType === 'final' && text?.trim()) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+                sender: isUser ? 'user' : 'agent',
+                text: text.trim(),
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+            ]);
+          }
+        }
+
+        // Support automatic trip suggestion extraction from agent tool calls
+        if (message.type === 'function-call' || message.type === 'tool-calls') {
+          const call = message.functionCall || (message.toolCalls && message.toolCalls[0]?.function);
+          if (call) {
+            const args = typeof call.arguments === 'string' ? JSON.parse(call.arguments || '{}') : call.arguments;
+            const query = args?.destination || args?.query || args?.trip_name;
+            if (query && onApplySuggestion) {
+              onApplySuggestion(query);
+            }
+          }
+        }
+      });
+
+      client.on('error', (err: any) => {
+        console.error('Vapi Call Error:', err);
+        setIsStarting(false);
+        const msg = err?.message || (typeof err === 'string' ? err : 'Voice connection error');
+        setErrorMessage(msg);
+      });
+
+      vapiRef.current = client;
+    }
+    return vapiRef.current;
+  }, [assistantId, publicKey, onApplySuggestion]);
+
+  // Start Voice Call Handler
   const handleStart = async () => {
     setErrorMessage(null);
     setIsStarting(true);
+
     try {
-      // 1. Request microphone access explicitly to guide browser prompt
+      // 1. Request microphone access
       if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
         await navigator.mediaDevices.getUserMedia({ audio: true });
       }
 
-      // 2. Start session with ElevenLabs agent
-      await conversation.startSession({
-        agentId: AGENT_ID,
-        connectionType: connectionType
-      });
+      // 2. Start Vapi Call
+      const client = getVapiClient();
+      await client.start(assistantId);
     } catch (err: any) {
-      console.error('Failed to start voice conversation:', err);
+      console.error('Failed to start Vapi voice agent:', err);
       setIsStarting(false);
-      setErrorMessage(err?.message || 'Microphone access is required to talk with the travel agent.');
+      setErrorMessage(err?.message || 'Could not connect to voice agent. Please check mic permissions.');
     }
   };
 
-  const handleStop = async () => {
-    try {
-      await conversation.endSession();
-    } catch (err) {
-      console.warn('Error ending session:', err);
+  // Stop Voice Call Handler
+  const handleStop = () => {
+    if (vapiRef.current) {
+      try {
+        vapiRef.current.stop();
+      } catch (err) {
+        console.warn('Error stopping Vapi call:', err);
+      }
     }
+    setIsConnected(false);
+    setIsSpeaking(false);
     setIsStarting(false);
+    setAudioLevel(0);
   };
 
   const handleToggleMute = () => {
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
-    if (typeof conversation.setMuted === 'function') {
-      conversation.setMuted(nextMuted);
-    }
-  };
-
-  const handleVolumeChange = (newVol: number) => {
-    setVolumeState(newVol);
-    if (typeof conversation.setVolume === 'function') {
-      conversation.setVolume({ volume: newVol });
+    if (vapiRef.current) {
+      try {
+        vapiRef.current.setMuted(nextMuted);
+      } catch {}
     }
   };
 
@@ -190,24 +252,132 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
   };
 
   const handleSendStarter = (starterText: string) => {
-    if (isConnected && typeof conversation.sendUserMessage === 'function') {
-      conversation.sendUserMessage(starterText);
+    if (isConnected && vapiRef.current) {
+      vapiRef.current.send({
+        type: 'add-message',
+        message: {
+          role: 'user',
+          content: starterText
+        }
+      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'user-' + Date.now(),
+          sender: 'user',
+          text: starterText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
     } else {
       handleStart().then(() => {
         setTimeout(() => {
-          if (typeof conversation.sendUserMessage === 'function') {
-            conversation.sendUserMessage(starterText);
+          if (vapiRef.current) {
+            vapiRef.current.send({
+              type: 'add-message',
+              message: {
+                role: 'user',
+                content: starterText
+              }
+            });
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: 'user-' + Date.now(),
+                sender: 'user',
+                text: starterText,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+            ]);
           }
-        }, 1200);
+        }, 1500);
       });
     }
   };
 
+  const handleSendText = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!textInput.trim()) return;
+    const query = textInput.trim();
+    setTextInput('');
+
+    if (isConnected && vapiRef.current) {
+      vapiRef.current.send({
+        type: 'add-message',
+        message: {
+          role: 'user',
+          content: query
+        }
+      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'user-' + Date.now(),
+          sender: 'user',
+          text: query,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    } else {
+      handleStart().then(() => {
+        setTimeout(() => {
+          if (vapiRef.current) {
+            vapiRef.current.send({
+              type: 'add-message',
+              message: {
+                role: 'user',
+                content: query
+              }
+            });
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: 'user-' + Date.now(),
+                sender: 'user',
+                text: query,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+            ]);
+          }
+        }, 1500);
+      });
+    }
+  };
+
+  const handleSaveConfig = () => {
+    const trimmedId = inputAssistantId.trim();
+    const trimmedKey = inputPublicKey.trim();
+
+    if (trimmedId) {
+      setAssistantId(trimmedId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('wandor_vapi_assistant_id', trimmedId);
+      }
+    }
+    if (trimmedKey) {
+      setPublicKey(trimmedKey);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('wandor_vapi_public_key', trimmedKey);
+      }
+    }
+
+    // Reset client to apply new keys
+    if (vapiRef.current) {
+      try {
+        vapiRef.current.stop();
+      } catch {}
+      vapiRef.current = null;
+    }
+
+    setErrorMessage(null);
+    alert('Updated Voice AI Agent configuration!');
+  };
+
   return (
     <div className="wandor-card rounded-[24px] sm:rounded-[32px] p-4 sm:p-5 text-left flex flex-col h-full border border-stone-200/90 shadow-md relative overflow-hidden transition-all duration-300">
-      {/* Decorative Warm Ambient Glow when connected */}
+      {/* Warm Ambient Glow when connected */}
       {isConnected && (
-        <div className="absolute -top-12 -right-12 w-40 h-40 bg-amber-400/15 rounded-full blur-3xl pointer-events-none animate-pulse" />
+        <div className="absolute -top-12 -right-12 w-40 h-40 bg-amber-400/20 rounded-full blur-3xl pointer-events-none animate-pulse" />
       )}
 
       {/* Card Header */}
@@ -238,8 +408,8 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
               <h3 className="font-heading text-sm sm:text-base font-bold text-stone-900 tracking-tight leading-none">
                 Travel Agency AI
               </h3>
-              <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-amber-100 text-amber-900 rounded-md border border-amber-200/70">
-                Voice Agent
+              <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-100 text-emerald-900 rounded-md border border-emerald-200/70">
+                Voice Agent Active
               </span>
             </div>
             <p className="text-[11px] text-stone-500 mt-0.5 flex items-center gap-1.5">
@@ -252,19 +422,19 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
                 ) : (
                   <span className="text-emerald-700 font-semibold flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
-                    Listening to you...
+                    Listening to you... Speak now!
                   </span>
                 )
               ) : isStarting ? (
-                <span className="text-stone-600 font-medium">Connecting audio...</span>
+                <span className="text-stone-600 font-medium">Connecting agent...</span>
               ) : (
-                <span>Ask where to go &amp; get live suggestions</span>
+                <span>Ask where to go &amp; get live recommendations</span>
               )}
             </p>
           </div>
         </div>
 
-        {/* Settings / Connection options toggle */}
+        {/* Settings Toggle */}
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -279,59 +449,48 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
 
       {/* Expandable Settings Bar */}
       {showSettings && (
-        <div className="mt-2.5 p-2.5 bg-stone-100/90 rounded-xl border border-stone-200/80 text-xs text-stone-700 space-y-2 animate-in fade-in duration-200">
-          <div className="flex items-center justify-between">
-            <span className="font-medium text-stone-600">Connection Mode:</span>
-            <div className="inline-flex rounded-lg border border-stone-300 bg-white p-0.5">
-              <button
-                type="button"
-                onClick={() => setConnectionType('webrtc')}
-                disabled={isConnected}
-                className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all ${
-                  connectionType === 'webrtc'
-                    ? 'bg-stone-900 text-white'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                WebRTC
-              </button>
-              <button
-                type="button"
-                onClick={() => setConnectionType('websocket')}
-                disabled={isConnected}
-                className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all ${
-                  connectionType === 'websocket'
-                    ? 'bg-stone-900 text-white'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                WebSocket
-              </button>
-            </div>
+        <div className="mt-2.5 p-3 bg-stone-100/95 rounded-xl border border-stone-200 text-xs text-stone-700 space-y-2 animate-in fade-in duration-200">
+          <div className="space-y-1">
+            <span className="font-semibold text-stone-700 flex items-center gap-1">
+              <KeyRound className="w-3.5 h-3.5 text-stone-500" />
+              Assistant ID:
+            </span>
+            <input
+              type="text"
+              value={inputAssistantId}
+              onChange={(e) => setInputAssistantId(e.target.value)}
+              placeholder="e0f0e7a0-76c2-4c40-..."
+              className="w-full bg-white border border-stone-300 rounded-lg px-2.5 py-1 text-[11px] font-mono focus:outline-none focus:border-stone-500"
+            />
           </div>
 
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-medium text-stone-600">Agent Volume:</span>
-            <div className="flex items-center gap-2">
-              <Volume2 className="w-3.5 h-3.5 text-stone-500" />
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={volume}
-                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-                className="w-24 h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-stone-900"
-              />
-              <span className="text-[10px] font-mono text-stone-500 w-7">
-                {Math.round(volume * 100)}%
-              </span>
-            </div>
+          <div className="space-y-1">
+            <span className="font-semibold text-stone-700 flex items-center gap-1">
+              <KeyRound className="w-3.5 h-3.5 text-stone-500" />
+              Public Key:
+            </span>
+            <input
+              type="text"
+              value={inputPublicKey}
+              onChange={(e) => setInputPublicKey(e.target.value)}
+              placeholder="2aad0218-c70f-42d5-..."
+              className="w-full bg-white border border-stone-300 rounded-lg px-2.5 py-1 text-[11px] font-mono focus:outline-none focus:border-stone-500"
+            />
+          </div>
+
+          <div className="pt-1 flex justify-end">
+            <button
+              type="button"
+              onClick={handleSaveConfig}
+              className="px-3 py-1 bg-stone-900 hover:bg-stone-800 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+            >
+              Save Configuration
+            </button>
           </div>
         </div>
       )}
 
-      {/* Dynamic Sound Wave & State Visualizer */}
+      {/* Sound Wave & Microphone State Visualizer */}
       <div className="my-3 py-2 px-3 rounded-2xl bg-white/70 border border-stone-200/60 shadow-2xs flex items-center justify-between gap-2 min-h-[46px]">
         <div className="flex items-center gap-2">
           {isConnected ? (
@@ -342,12 +501,10 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
                   className={`w-1 rounded-full transition-all duration-150 ${
                     isSpeaking
                       ? 'bg-amber-500 animate-pulse'
-                      : isListening
-                      ? 'bg-emerald-500'
-                      : 'bg-stone-300'
+                      : 'bg-emerald-500 animate-bounce'
                   }`}
                   style={{
-                    height: isSpeaking ? `${Math.max(8, h * 0.28)}px` : isListening ? `${10 + (i % 3) * 4}px` : '6px',
+                    height: isSpeaking ? `${Math.max(8, h * 0.28)}px` : `${Math.max(6, (audioLevel * 40) + ((i % 3) * 4))}px`,
                     animationDelay: `${i * 100}ms`
                   }}
                 />
@@ -392,33 +549,35 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
         </div>
       </div>
 
-      {/* Error Message Notice if any */}
+      {/* Notice Message if any */}
       {errorMessage && (
-        <div className="mb-2.5 p-2 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-700 flex items-start gap-1.5">
-          <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-rose-600" />
+        <div className="mb-2.5 p-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-start gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-600" />
           <div className="flex-1">
             <span>{errorMessage}</span>
           </div>
           <button
             type="button"
             onClick={() => setErrorMessage(null)}
-            className="text-rose-500 hover:text-rose-800 font-bold ml-1"
+            className="text-amber-600 hover:text-amber-900 font-bold ml-1 cursor-pointer"
           >
-            ×
+            ✕
           </button>
         </div>
       )}
 
       {/* Real-time Conversation Transcript Stream */}
-      <div ref={transcriptContainerRef} className="flex-1 min-h-[160px] max-h-[220px] sm:max-h-[250px] overflow-y-auto pr-1 space-y-2.5 scrollbar-thin scrollbar-thumb-stone-300">
+      <div
+        ref={transcriptContainerRef}
+        className="flex-1 min-h-[160px] max-h-[220px] sm:max-h-[250px] overflow-y-auto pr-1 space-y-2.5 scrollbar-thin scrollbar-thumb-stone-300"
+      >
         {messages.length === 0 ? (
           <div className="h-full flex flex-col justify-center items-center text-center p-3 text-stone-500 space-y-2">
             <Sparkles className="w-6 h-6 text-amber-600/80 animate-pulse" />
-            <p className="text-xs font-medium text-stone-700">
-              Talk to your AI travel consultant
-            </p>
+            <p className="text-xs font-medium text-stone-700">Talk to your AI travel consultant</p>
             <p className="text-[11px] text-stone-500 max-w-[240px] leading-relaxed">
-              Ask for beach ideas, weekend escapes, or budget getaways. Then click <span className="font-semibold text-stone-800">"Plan This Trip"</span> to fill your search box!
+              Ask for beach ideas, weekend escapes, or budget getaways. Then click{' '}
+              <span className="font-semibold text-stone-800">"Plan This Trip"</span> to fill your search box!
             </p>
 
             {/* Quick Inspiration Starters */}
@@ -487,6 +646,27 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
         )}
       </div>
 
+      {/* Text / Voice input bar */}
+      {isConnected && (
+        <form onSubmit={handleSendText} className="mt-2 pt-2 border-t border-stone-200/60 flex items-center gap-1.5">
+          <input
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Speak or type: 'Suggest 3 days in Bali'..."
+            className="flex-1 bg-white border border-stone-300 rounded-full px-3 py-1.5 text-xs text-stone-800 placeholder-stone-400 focus:outline-none focus:border-amber-500 shadow-2xs"
+          />
+          <button
+            type="submit"
+            disabled={!textInput.trim()}
+            className="p-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white rounded-full transition-colors cursor-pointer"
+            title="Send message"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </button>
+        </form>
+      )}
+
       {/* Main Call Action Footer */}
       <div className="pt-3 border-t border-stone-200/70 mt-2 flex items-center gap-2">
         {!isConnected ? (
@@ -531,13 +711,5 @@ const VoiceTravelAgentInner: React.FC<VoiceTravelAgentCardProps> = ({
         )}
       </div>
     </div>
-  );
-};
-
-export const VoiceTravelAgentCard: React.FC<VoiceTravelAgentCardProps> = (props) => {
-  return (
-    <ConversationProvider>
-      <VoiceTravelAgentInner {...props} />
-    </ConversationProvider>
   );
 };

@@ -681,6 +681,48 @@ Return ONLY the spoken text, no quotes or markdown.`;
   }
 });
 
+// Conversational Travel Consultant Voice Endpoint (Gemini-powered realtime voice fallback)
+app.post(["/api/voice-consultant-chat", "/voice-consultant-chat"], async (req, res) => {
+  const { message, language = "English" } = req.body;
+  if (!message) return res.status(400).json({ error: "Message is required" });
+
+  try {
+    const apiKey = (req.headers['x-gemini-key'] as string) || process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      const { GoogleGenAI } = await import('@google/genai');
+      const aiClient = new GoogleGenAI({ apiKey });
+      const prompt = `You are Wandor's enthusiastic, knowledgeable AI travel agency consultant.
+The traveler says: "${message}".
+Provide a concise, engaging recommendation in 2 to 3 sentences.
+Highlight an attractive destination or activity, and suggest a specific trip prompt the user can click to plan (e.g. "3 Days in Goa with beachside dining and heritage walks").
+Language: ${language}.
+Keep the response plain spoken text suitable for voice output without bullet points, emojis, or markdown.`;
+
+      const response = await aiClient.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+        contents: prompt,
+        config: {
+          temperature: 0.7,
+          maxOutputTokens: 200,
+        }
+      });
+      const reply = response.text?.trim() || "That sounds like a wonderful travel idea! Where would you like to explore first?";
+      return res.json({ success: true, reply });
+    }
+
+    return res.json({
+      success: true,
+      reply: "I would love to help you plan that trip! Which cities or activities are you most excited about?"
+    });
+  } catch (err: any) {
+    console.warn("Voice consultant chat error:", err.message);
+    return res.json({
+      success: true,
+      reply: "That sounds like a wonderful destination! How many days are you planning for your journey?"
+    });
+  }
+});
+
 // Place Info Endpoint (Brief Idea, Overview, Photo, Coordinates, Wiki & Maps URLs)
 app.get(["/api/place-info", "/place-info"], async (req, res) => {
   const rawPlace = (req.query.place as string) || (req.query.q as string) || '';

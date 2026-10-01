@@ -17,6 +17,7 @@
     "@prisma/client": "^6.4.1",
     "@react-oauth/google": "^0.13.5",
     "@tailwindcss/vite": "^4.1.14",
+    "@vapi-ai/web": "^2.7.1",
     "@vitejs/plugin-react": "^5.0.4",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
